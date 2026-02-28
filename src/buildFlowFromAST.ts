@@ -6,7 +6,7 @@ import dagre from 'dagre';
 type AST = Record<string, any>;
 
 const NODE_WIDTH = 280;
-const NODE_HEIGHT = 50;
+const NODE_HEIGHT = 70;
 const MAX_LABEL = 80;
 
 const nodeColors: Record<string, string> = {
@@ -151,6 +151,86 @@ function spanLoc(items: any[]): AstLoc | undefined {
   return min <= max ? { start: min, end: max } : undefined;
 }
 
+// ── Plain English translation ──
+
+function generatePlainEnglish(kind: string, label: string): string {
+  switch (kind) {
+    case 'table': {
+      if (label === '(no source)') return 'No data source specified.';
+      if (label.startsWith('subquery')) return 'Loads data from an inline subquery.';
+      return `Loads base data from the ${label} table.`;
+    }
+    case 'where': {
+      const cond = label.replace(/^WHERE\s+/i, '');
+      return `Keeps only rows where ${truncate(cond, 60)}.`;
+    }
+    case 'having': {
+      const cond = label.replace(/^HAVING\s+/i, '');
+      return `Keeps only groups where ${truncate(cond, 60)}.`;
+    }
+    case 'join': {
+      if (label.includes('CROSS')) return 'Combines every row with every other row.';
+      const onMatch = label.match(/ON\s+(.+)/i);
+      const joinType = label.match(/^(\w+\s+JOIN)/i)?.[1] ?? 'JOIN';
+      return onMatch
+        ? `${joinType}: matches where ${truncate(onMatch[1], 50)}.`
+        : 'Joins with another data source.';
+    }
+    case 'select':
+      return 'Selects and formats the output columns.';
+    case 'groupby': {
+      const cols = label.replace(/^GROUP BY\s+/i, '');
+      return `Groups rows together by ${truncate(cols, 50)}.`;
+    }
+    case 'orderby': {
+      const cols = label.replace(/^ORDER BY\s+/i, '');
+      return `Sorts the results by ${truncate(cols, 50)}.`;
+    }
+    case 'limit': {
+      const val = label.replace(/^LIMIT\s+/i, '');
+      return `Limits output to ${val} rows.`;
+    }
+    case 'cte': {
+      const name = label.replace(/^(CTE|RECURSIVE):\s*/i, '');
+      return label.startsWith('RECURSIVE')
+        ? `Creates a recursive result set named ${name}.`
+        : `Creates a temporary result set named ${name}.`;
+    }
+    case 'union':
+      return label.includes('ALL')
+        ? 'Combines all results, keeping duplicates.'
+        : 'Combines results, removing duplicates.';
+    case 'delete': {
+      const table = label.replace(/^DELETE FROM\s+/i, '');
+      return `Deletes matched rows from ${table}.`;
+    }
+    case 'insert':
+      return 'Inserts the processed rows into the target.';
+    case 'update': {
+      const table = label.replace(/^UPDATE\s+/i, '');
+      return `Updates matched rows in ${table}.`;
+    }
+    case 'values':
+      return 'Provides literal data values as input.';
+    case 'set': {
+      const assignments = label.replace(/^SET\s+/i, '');
+      return `Sets ${truncate(assignments, 60)}.`;
+    }
+    case 'returning': {
+      const cols = label.replace(/^RETURNING\s+/i, '');
+      return `Returns ${truncate(cols, 50)} from modified rows.`;
+    }
+    case 'create': {
+      const name = label.replace(/^CREATE TABLE\s+/i, '');
+      return `Creates a new table named ${name}.`;
+    }
+    case 'column':
+      return `Defines the ${label.trim()} column.`;
+    default:
+      return `Performs a ${label || kind} operation.`;
+  }
+}
+
 // ── Graph builder (coordinates-free, dagre computes layout) ──
 
 interface FlowGraph {
@@ -253,7 +333,12 @@ class GraphBuilder {
         id: n.id,
         type: 'sql',
         position: { x: pos.x - NODE_WIDTH / 2, y: pos.y - NODE_HEIGHT / 2 },
-        data: { label: n.label, loc: n.loc, kind: n.kind },
+        data: {
+          label: n.label,
+          loc: n.loc,
+          kind: n.kind,
+          plainEnglish: generatePlainEnglish(n.kind, n.label),
+        },
         style: {
           '--node-color': color,
           background: '#1c2129',

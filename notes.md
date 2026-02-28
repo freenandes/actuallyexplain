@@ -1,6 +1,15 @@
 To do:
 
 - Test more queries for the bi-directional highlighting accuracy
+- Advance to actually explain
+- Centralize styling assets
+- Style canvases
+- Style code
+- Style diagram nodes + icons + content
+- Add html metadata and graphics
+- Add responsiveness to browser viewport resize
+- Write readme
+- Write disclaimer that there's no AI or routes anywhere that can flush sensitive information out in the open
 
 ---
 

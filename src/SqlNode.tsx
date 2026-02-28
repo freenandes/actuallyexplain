@@ -53,10 +53,11 @@ export default function SqlNode({ data }: NodeProps) {
     <>
       <Handle type="target" position={Position.Top} className={styles.handle} />
       <div className={styles.wrapper}>
-        <div className={styles.icon} data-kind={kind}>
-          <Icon size={14} />
+        <div className={styles.header}>
+          <Icon size={12} />
+          <span className={styles.rawCode}>{data.label as string}</span>
         </div>
-        <div className={styles.label}>{data.label as string}</div>
+        <div className={styles.body}>{data.plainEnglish as string}</div>
       </div>
       <Handle type="source" position={Position.Bottom} className={styles.handle} />
     </>
