@@ -1,7 +1,5 @@
 To do:
 
-- Test more queries for the bi-directional highlighting accuracy
-- Advance to actually explain
 - Centralize styling assets
 - Style canvases
 - Style code

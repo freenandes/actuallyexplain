@@ -20,6 +20,8 @@ import type * as Monaco from 'monaco-editor';
 import { buildFlowFromAST, type AstLoc } from './buildFlowFromAST';
 import RecursiveEdge from './RecursiveEdge';
 import SqlNode from './SqlNode';
+import NodeDetailsPanel from './NodeDetailsPanel';
+import { NodeActionsContext } from './NodeActionsContext';
 import styles from './App.module.css';
 
 const nodeTypes = { sql: SqlNode };
@@ -87,6 +89,7 @@ function AppInner() {
   const [edges, setEdges] = useState<Edge[]>([]);
   const [parseError, setParseError] = useState<string | null>(null);
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
+  const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { fitView } = useReactFlow();
 
@@ -123,6 +126,7 @@ function AppInner() {
 
   const clearHighlight = useCallback(() => {
     setHighlightedNodeId(null);
+    setSelectedNode(null);
     decorationsRef.current?.set([]);
   }, []);
 
@@ -199,6 +203,7 @@ function AppInner() {
   const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     const loc = node.data?.loc as AstLoc | undefined;
     setHighlightedNodeId(node.id);
+    setSelectedNode((prev) => prev !== null ? node : null);
     if (loc) {
       suppressCursorRef.current = true;
       highlightRange(loc);
@@ -223,6 +228,38 @@ function AppInner() {
   const handlePaneClick = useCallback(() => {
     clearHighlight();
   }, [clearHighlight]);
+
+  const handleClosePanel = useCallback(() => {
+    setSelectedNode(null);
+  }, []);
+
+  const openDetails = useCallback((nodeId: string) => {
+    const node = nodesRef.current.find((n) => n.id === nodeId);
+    if (!node) return;
+    setSelectedNode(node);
+    setHighlightedNodeId(node.id);
+    const loc = node.data?.loc as AstLoc | undefined;
+    if (loc) {
+      suppressCursorRef.current = true;
+      highlightRange(loc);
+      const editor = editorRef.current;
+      const monaco = monacoRef.current;
+      if (editor && monaco) {
+        const model = editor.getModel();
+        if (model) {
+          const pos = model.getPositionAt(loc.start);
+          editor.revealRangeInCenter(new monaco.Range(
+            pos.lineNumber, pos.column,
+            model.getPositionAt(loc.end).lineNumber,
+            model.getPositionAt(loc.end).column,
+          ));
+        }
+      }
+      requestAnimationFrame(() => { suppressCursorRef.current = false; });
+    }
+  }, [highlightRange]);
+
+  const nodeActions = useMemo(() => ({ openDetails }), [openDetails]);
 
   const onNodesChange: OnNodesChange = useCallback(
     (changes) => setNodes((nds) => applyNodeChanges(changes, nds)),
@@ -287,33 +324,40 @@ function AppInner() {
           Query Plan
         </div>
         <div className={styles.flowWrapper}>
-          <ReactFlow
-            nodes={displayNodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            edgeTypes={edgeTypes}
-            onNodesChange={onNodesChange}
-            onEdgesChange={onEdgesChange}
-            onNodeClick={handleNodeClick}
-            onPaneClick={handlePaneClick}
-            proOptions={{ hideAttribution: true }}
-            colorMode="dark"
-          >
-            <Background
-              variant={BackgroundVariant.Dots}
-              gap={20}
-              size={1}
-              color="#30363d"
-            />
-            <Controls
-              showInteractive={false}
-              style={{
-                background: '#161b22',
-                border: '1px solid #30363d',
-                borderRadius: 8,
-              }}
-            />
-          </ReactFlow>
+          <NodeActionsContext.Provider value={nodeActions}>
+            <ReactFlow
+              nodes={displayNodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
+              onNodesChange={onNodesChange}
+              onEdgesChange={onEdgesChange}
+              onNodeClick={handleNodeClick}
+              onPaneClick={handlePaneClick}
+              proOptions={{ hideAttribution: true }}
+              colorMode="dark"
+            >
+              <Background
+                variant={BackgroundVariant.Dots}
+                gap={20}
+                size={1}
+                color="#30363d"
+              />
+              <Controls
+                showInteractive={false}
+                style={{
+                  background: '#161b22',
+                  border: '1px solid #30363d',
+                  borderRadius: 8,
+                }}
+              />
+            </ReactFlow>
+          </NodeActionsContext.Provider>
+          {selectedNode && (
+            <div style={{ '--node-color': selectedNode.style?.['--node-color' as keyof typeof selectedNode.style] ?? '#58a6ff' } as React.CSSProperties}>
+              <NodeDetailsPanel node={selectedNode} onClose={handleClosePanel} />
+            </div>
+          )}
         </div>
       </main>
     </div>

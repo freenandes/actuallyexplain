@@ -25,6 +25,28 @@
   letter-spacing: 0.02em;
 }
 
+.infoBtn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: none;
+  background: transparent;
+  color: var(--node-color, #58a6ff);
+  opacity: 0.4;
+  cursor: pointer;
+  padding: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.infoBtn:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.08);
+}
+
 .body {
   font-size: 12px;
   line-height: 1.35;
