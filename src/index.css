@@ -35,3 +35,10 @@ body,
   width: 100%;
   overflow: hidden;
 }
+
+/* Monaco Editor: highlighted SQL range when linked to a React Flow node */
+.sql-highlight {
+  background-color: rgba(88, 166, 255, 0.15);
+  border-bottom: 2px solid rgba(88, 166, 255, 0.5);
+  border-radius: 2px;
+}

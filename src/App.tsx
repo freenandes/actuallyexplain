@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -15,11 +15,14 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { parse } from 'pgsql-ast-parser';
-import Editor from '@monaco-editor/react';
-import { buildFlowFromAST } from './buildFlowFromAST';
+import Editor, { type OnMount } from '@monaco-editor/react';
+import type * as Monaco from 'monaco-editor';
+import { buildFlowFromAST, type AstLoc } from './buildFlowFromAST';
 import RecursiveEdge from './RecursiveEdge';
+import SqlNode from './SqlNode';
 import styles from './App.module.css';
 
+const nodeTypes = { sql: SqlNode };
 const edgeTypes = { recursive: RecursiveEdge };
 
 const DEFAULT_SQL = `SELECT
@@ -60,15 +63,72 @@ function shortenError(msg: string): string {
   return firstLine.length > 120 ? firstLine.slice(0, 117) + '…' : firstLine;
 }
 
+const HIGHLIGHT_GLOW = '0 0 0 2px #58a6ff, 0 0 16px rgba(88, 166, 255, 0.4)';
+
+function findNodeAtOffset(nodes: Node[], offset: number): Node | null {
+  let best: Node | null = null;
+  let bestSize = Infinity;
+  for (const n of nodes) {
+    const loc = n.data?.loc as AstLoc | undefined;
+    if (!loc) continue;
+    if (offset >= loc.start && offset <= loc.end) {
+      const size = loc.end - loc.start;
+      if (size < bestSize) {
+        best = n;
+        bestSize = size;
+      }
+    }
+  }
+  return best;
+}
+
 function AppInner() {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [parseError, setParseError] = useState<string | null>(null);
+  const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { fitView } = useReactFlow();
 
+  const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
+  const monacoRef = useRef<typeof Monaco | null>(null);
+  const decorationsRef = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null);
+  const nodesRef = useRef<Node[]>([]);
+  const suppressCursorRef = useRef(false);
+
+  useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+
+  const highlightRange = useCallback((loc: AstLoc) => {
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    if (!editor || !monaco) return;
+    const model = editor.getModel();
+    if (!model) return;
+
+    const startPos = model.getPositionAt(loc.start);
+    const endPos = model.getPositionAt(loc.end);
+    const range = new monaco.Range(
+      startPos.lineNumber, startPos.column,
+      endPos.lineNumber, endPos.column,
+    );
+
+    decorationsRef.current?.set([{
+      range,
+      options: {
+        className: 'sql-highlight',
+        isWholeLine: false,
+      },
+    }]);
+  }, []);
+
+  const clearHighlight = useCallback(() => {
+    setHighlightedNodeId(null);
+    decorationsRef.current?.set([]);
+  }, []);
+
   const parseSql = useCallback((raw: string) => {
     const input = sanitizeInput(raw);
+    clearHighlight();
 
     if (!input) {
       setNodes([]);
@@ -78,8 +138,8 @@ function AppInner() {
     }
 
     try {
-      const ast = parse(input);
-      const graph = buildFlowFromAST(ast);
+      const ast = parse(input, { locationTracking: true });
+      const graph = buildFlowFromAST(ast, input);
 
       setNodes(graph.nodes);
       setEdges(graph.edges);
@@ -89,7 +149,7 @@ function AppInner() {
       console.warn('[SQL Parse Error]', message);
       setParseError(message);
     }
-  }, []);
+  }, [clearHighlight]);
 
   useEffect(() => {
     parseSql(DEFAULT_SQL);
@@ -112,6 +172,58 @@ function AppInner() {
     [parseSql],
   );
 
+  const handleEditorMount: OnMount = useCallback((editor, monaco) => {
+    editorRef.current = editor;
+    monacoRef.current = monaco;
+    decorationsRef.current = editor.createDecorationsCollection([]);
+
+    editor.onDidChangeCursorPosition((e) => {
+      if (suppressCursorRef.current) return;
+      if (e.reason === 3) {
+        // reason 3 = Explicit (click or keyboard navigation)
+        const model = editor.getModel();
+        if (!model) return;
+        const offset = model.getOffsetAt(e.position);
+        const match = findNodeAtOffset(nodesRef.current, offset);
+        if (match) {
+          setHighlightedNodeId(match.id);
+          const loc = match.data?.loc as AstLoc | undefined;
+          if (loc) highlightRange(loc);
+        } else {
+          clearHighlight();
+        }
+      }
+    });
+  }, [highlightRange, clearHighlight]);
+
+  const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
+    const loc = node.data?.loc as AstLoc | undefined;
+    setHighlightedNodeId(node.id);
+    if (loc) {
+      suppressCursorRef.current = true;
+      highlightRange(loc);
+
+      const editor = editorRef.current;
+      const monaco = monacoRef.current;
+      if (editor && monaco) {
+        const model = editor.getModel();
+        if (model) {
+          const pos = model.getPositionAt(loc.start);
+          editor.revealRangeInCenter(new monaco.Range(
+            pos.lineNumber, pos.column,
+            model.getPositionAt(loc.end).lineNumber,
+            model.getPositionAt(loc.end).column,
+          ));
+        }
+      }
+      requestAnimationFrame(() => { suppressCursorRef.current = false; });
+    }
+  }, [highlightRange]);
+
+  const handlePaneClick = useCallback(() => {
+    clearHighlight();
+  }, [clearHighlight]);
+
   const onNodesChange: OnNodesChange = useCallback(
     (changes) => setNodes((nds) => applyNodeChanges(changes, nds)),
     [],
@@ -121,6 +233,15 @@ function AppInner() {
     (changes) => setEdges((eds) => applyEdgeChanges(changes, eds)),
     [],
   );
+
+  const displayNodes = useMemo(() => {
+    if (!highlightedNodeId) return nodes;
+    return nodes.map((n) =>
+      n.id === highlightedNodeId
+        ? { ...n, style: { ...n.style, boxShadow: HIGHLIGHT_GLOW } }
+        : n,
+    );
+  }, [nodes, highlightedNodeId]);
 
   return (
     <div className={styles.container}>
@@ -143,6 +264,7 @@ function AppInner() {
             defaultLanguage="sql"
             defaultValue={DEFAULT_SQL}
             onChange={handleChange}
+            onMount={handleEditorMount}
             theme="vs-dark"
             options={{
               minimap: { enabled: false },
@@ -166,11 +288,14 @@ function AppInner() {
         </div>
         <div className={styles.flowWrapper}>
           <ReactFlow
-            nodes={nodes}
+            nodes={displayNodes}
             edges={edges}
+            nodeTypes={nodeTypes}
             edgeTypes={edgeTypes}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
+            onNodeClick={handleNodeClick}
+            onPaneClick={handlePaneClick}
             proOptions={{ hideAttribution: true }}
             colorMode="dark"
           >

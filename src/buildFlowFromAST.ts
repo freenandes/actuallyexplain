@@ -1,3 +1,4 @@
+import type React from 'react';
 import { MarkerType, type Node, type Edge } from '@xyflow/react';
 import dagre from 'dagre';
 
@@ -33,18 +34,6 @@ const nodeColors: Record<string, string> = {
   union: '#d2a8ff',
 };
 
-function makeNodeStyle(kind: string) {
-  return {
-    background: '#1c2129',
-    color: '#e6edf3',
-    border: `1px solid ${nodeColors[kind] ?? '#58a6ff'}`,
-    borderRadius: 8,
-    padding: '10px 16px',
-    fontSize: 13,
-    fontFamily: "'JetBrains Mono', monospace",
-    width: NODE_WIDTH,
-  };
-}
 
 function truncate(str: string, max = MAX_LABEL): string {
   return str.length > max ? str.slice(0, max - 1) + '…' : str;
@@ -143,6 +132,25 @@ function tblAlias(t: any): string {
   return '';
 }
 
+// ── AST location helpers ──
+
+function astLoc(node: any): AstLoc | undefined {
+  return node?._location ?? undefined;
+}
+
+function spanLoc(items: any[]): AstLoc | undefined {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const item of items) {
+    const l = item?._location;
+    if (l) {
+      if (l.start < min) min = l.start;
+      if (l.end > max) max = l.end;
+    }
+  }
+  return min <= max ? { start: min, end: max } : undefined;
+}
+
 // ── Graph builder (coordinates-free, dagre computes layout) ──
 
 interface FlowGraph {
@@ -150,10 +158,16 @@ interface FlowGraph {
   edges: Edge[];
 }
 
+export interface AstLoc {
+  start: number;
+  end: number;
+}
+
 interface RawNode {
   id: string;
   label: string;
   kind: string;
+  loc?: AstLoc;
 }
 
 interface RawEdge {
@@ -172,11 +186,37 @@ class GraphBuilder {
   private nodes: RawNode[] = [];
   private edges: RawEdge[] = [];
   private idCounter = 0;
+  private sql: string;
 
-  addNode(label: string, kind: string): string {
+  constructor(sql: string) {
+    this.sql = sql;
+  }
+
+  addNode(label: string, kind: string, loc?: AstLoc): string {
     const id = `n-${this.idCounter++}`;
-    this.nodes.push({ id, label: truncate(label), kind });
+    this.nodes.push({ id, label: truncate(label), kind, loc });
     return id;
+  }
+
+  /** Extend a location backwards to include a SQL keyword (e.g. WHERE, SELECT). */
+  kwLoc(loc: AstLoc | undefined, keyword: string): AstLoc | undefined {
+    if (!loc) return undefined;
+    const kw = keyword.toUpperCase();
+    const searchStart = Math.max(0, loc.start - kw.length - 20);
+    const prefix = this.sql.substring(searchStart, loc.start).toUpperCase();
+    const idx = prefix.lastIndexOf(kw);
+    if (idx >= 0) return { start: searchStart + idx, end: loc.end };
+    return loc;
+  }
+
+  /** Extend a location forward to include a table alias (e.g. users → users u). */
+  alLoc(loc: AstLoc | undefined, alias: string | undefined): AstLoc | undefined {
+    if (!loc || !alias) return loc;
+    const searchEnd = Math.min(loc.end + alias.length + 10, this.sql.length);
+    const after = this.sql.substring(loc.end, searchEnd);
+    const idx = after.indexOf(alias);
+    if (idx >= 0) return { start: loc.start, end: loc.end + idx + alias.length };
+    return loc;
   }
 
   addEdge(source: string, target: string, kind?: string, isRecursive?: boolean) {
@@ -208,12 +248,23 @@ class GraphBuilder {
 
     const flowNodes: Node[] = this.nodes.map((n) => {
       const pos = g.node(n.id);
+      const color = nodeColors[n.kind] ?? '#58a6ff';
       return {
         id: n.id,
-        type: 'default',
+        type: 'sql',
         position: { x: pos.x - NODE_WIDTH / 2, y: pos.y - NODE_HEIGHT / 2 },
-        data: { label: n.label },
-        style: makeNodeStyle(n.kind),
+        data: { label: n.label, loc: n.loc, kind: n.kind },
+        style: {
+          '--node-color': color,
+          background: '#1c2129',
+          color: '#e6edf3',
+          border: `1px solid ${color}`,
+          borderRadius: 8,
+          padding: '10px 16px',
+          fontSize: 13,
+          fontFamily: "'JetBrains Mono', monospace",
+          width: NODE_WIDTH,
+        } as React.CSSProperties,
       };
     });
 
@@ -366,22 +417,26 @@ function buildSelect(
         if (cteRef) {
           srcId = cteRef;
         } else {
-          srcId = g.addNode(`📦 ${name}${alias}`, 'table');
+          const nameLoc = astLoc(src.name) ?? astLoc(src);
+          const tblLoc = g.alLoc(nameLoc, src.name?.alias);
+          srcId = g.addNode(`${name}${alias}`, 'table', tblLoc);
         }
       } else if (src.type === 'select') {
         const subId = buildSelect(src, g, cteMap);
         const alias = src.alias?.name ? ` (${src.alias.name})` : '';
-        const wrapId = g.addNode(`📦 subquery${alias}`, 'table');
+        const wrapId = g.addNode(`subquery${alias}`, 'table', astLoc(src));
         g.addEdge(subId, wrapId, 'table');
         srcId = wrapId;
       } else {
-        srcId = g.addNode(`📦 ${tblName(src)}`, 'table');
+        const nameLoc = astLoc(src.name) ?? astLoc(src);
+        const tblLoc = g.alLoc(nameLoc, src.name?.alias);
+        srcId = g.addNode(`${tblName(src)}`, 'table', tblLoc);
       }
 
       if (src.join) {
         const joinType = src.join.type ?? 'JOIN';
         const onClause = src.join.on ? ` ON ${exprToString(src.join.on)}` : '';
-        const joinId = g.addNode(`🔗 ${joinType}${onClause}`, 'join');
+        const joinId = g.addNode(`${joinType}${onClause}`, 'join', astLoc(src));
 
         // Left side: the accumulated result so far
         if (sourceIds.length > 0) {
@@ -408,12 +463,12 @@ function buildSelect(
   let currentId = '';
   if (sourceIds.length === 0) {
     if (!selfRef) {
-      currentId = g.addNode('📦 (no source)', 'table');
+      currentId = g.addNode('(no source)', 'table');
     }
   } else if (sourceIds.length === 1) {
     currentId = sourceIds[0];
   } else {
-    const mergeId = g.addNode('✖️ CROSS JOIN', 'join');
+    const mergeId = g.addNode('CROSS JOIN', 'join');
     for (const sid of sourceIds) {
       g.addEdge(sid, mergeId, 'join');
     }
@@ -422,7 +477,7 @@ function buildSelect(
 
   // WHERE
   if (ast.where) {
-    const whereId = g.addNode(`🔍 WHERE ${exprToString(ast.where)}`, 'where');
+    const whereId = g.addNode(`WHERE ${exprToString(ast.where)}`, 'where', g.kwLoc(astLoc(ast.where), 'WHERE'));
     if (currentId) g.addEdge(currentId, whereId, 'where');
     buildSubqueriesInExpr(ast.where, g, cteMap, whereId);
     if (selfRef && !selfRef.entryNodeId) selfRef.entryNodeId = whereId;
@@ -432,7 +487,7 @@ function buildSelect(
   // GROUP BY
   if (ast.groupBy && ast.groupBy.length > 0) {
     const cols = ast.groupBy.map((c: any) => exprToString(c)).join(', ');
-    const gbId = g.addNode(`📊 GROUP BY ${cols}`, 'groupby');
+    const gbId = g.addNode(`GROUP BY ${cols}`, 'groupby', g.kwLoc(spanLoc(ast.groupBy), 'GROUP BY'));
     if (currentId) g.addEdge(currentId, gbId, 'groupby');
     if (selfRef && !selfRef.entryNodeId) selfRef.entryNodeId = gbId;
     currentId = gbId;
@@ -440,7 +495,7 @@ function buildSelect(
 
   // HAVING
   if (ast.having) {
-    const havId = g.addNode(`🔍 HAVING ${exprToString(ast.having)}`, 'having');
+    const havId = g.addNode(`HAVING ${exprToString(ast.having)}`, 'having', g.kwLoc(astLoc(ast.having), 'HAVING'));
     if (currentId) g.addEdge(currentId, havId, 'having');
     buildSubqueriesInExpr(ast.having, g, cteMap, havId);
     if (selfRef && !selfRef.entryNodeId) selfRef.entryNodeId = havId;
@@ -455,7 +510,7 @@ function buildSelect(
         return c.alias?.name ? `${expr} AS ${c.alias.name}` : expr;
       })
       .join(', ');
-    const selId = g.addNode(`📋 SELECT ${cols}`, 'select');
+    const selId = g.addNode(`SELECT ${cols}`, 'select', g.kwLoc(spanLoc(ast.columns), 'SELECT'));
     if (currentId) g.addEdge(currentId, selId, 'select');
     for (const c of ast.columns) {
       buildSubqueriesInExpr(c.expr, g, cteMap, selId);
@@ -469,7 +524,7 @@ function buildSelect(
     const parts = ast.orderBy
       .map((o: any) => `${exprToString(o.by)} ${o.order ?? 'ASC'}`)
       .join(', ');
-    const obId = g.addNode(`⬆⬇ ORDER BY ${parts}`, 'orderby');
+    const obId = g.addNode(`ORDER BY ${parts}`, 'orderby', g.kwLoc(spanLoc(ast.orderBy), 'ORDER BY'));
     if (currentId) g.addEdge(currentId, obId, 'orderby');
     if (selfRef && !selfRef.entryNodeId) selfRef.entryNodeId = obId;
     currentId = obId;
@@ -479,7 +534,7 @@ function buildSelect(
   if (ast.limit) {
     const val = ast.limit.limit ? exprToString(ast.limit.limit) : '';
     const off = ast.limit.offset ? ` OFFSET ${exprToString(ast.limit.offset)}` : '';
-    const limId = g.addNode(`✂️ LIMIT ${val}${off}`, 'limit');
+    const limId = g.addNode(`LIMIT ${val}${off}`, 'limit', g.kwLoc(astLoc(ast.limit), 'LIMIT'));
     if (currentId) g.addEdge(currentId, limId, 'limit');
     if (selfRef && !selfRef.entryNodeId) selfRef.entryNodeId = limId;
     currentId = limId;
@@ -490,11 +545,11 @@ function buildSelect(
 
 function buildUpdate(ast: AST, g: GraphBuilder, cteMap: Map<string, string>): string {
   const tableName = tblName(ast.table ?? ast);
-  const tblId = g.addNode(`📦 ${tableName}`, 'table');
+  const tblId = g.addNode(`${tableName}`, 'table', astLoc(ast.table));
   let currentId = tblId;
 
   if (ast.where) {
-    const wId = g.addNode(`🔍 WHERE ${exprToString(ast.where)}`, 'where');
+    const wId = g.addNode(`WHERE ${exprToString(ast.where)}`, 'where', g.kwLoc(astLoc(ast.where), 'WHERE'));
     g.addEdge(currentId, wId, 'where');
     buildSubqueriesInExpr(ast.where, g, cteMap, wId);
     currentId = wId;
@@ -504,7 +559,7 @@ function buildUpdate(ast: AST, g: GraphBuilder, cteMap: Map<string, string>): st
     const assignments = ast.sets
       .map((s: any) => `${s.column?.name ?? s.column} = ${exprToString(s.value)}`)
       .join(', ');
-    const setId = g.addNode(`📝 SET ${assignments}`, 'set');
+    const setId = g.addNode(`SET ${assignments}`, 'set', g.kwLoc(spanLoc(ast.sets), 'SET'));
     g.addEdge(currentId, setId, 'set');
     for (const s of ast.sets) {
       buildSubqueriesInExpr(s.value, g, cteMap, setId);
@@ -512,13 +567,13 @@ function buildUpdate(ast: AST, g: GraphBuilder, cteMap: Map<string, string>): st
     currentId = setId;
   }
 
-  const updId = g.addNode(`✏️ UPDATE ${tableName}`, 'update');
+  const updId = g.addNode(`UPDATE ${tableName}`, 'update', astLoc(ast));
   g.addEdge(currentId, updId, 'update');
   currentId = updId;
 
   if (ast.returning) {
     const cols = ast.returning.map((r: any) => exprToString(r.expr ?? r)).join(', ');
-    const retId = g.addNode(`↩️ RETURNING ${cols}`, 'returning');
+    const retId = g.addNode(`RETURNING ${cols}`, 'returning', g.kwLoc(spanLoc(ast.returning), 'RETURNING'));
     g.addEdge(currentId, retId, 'returning');
     currentId = retId;
   }
@@ -527,7 +582,6 @@ function buildUpdate(ast: AST, g: GraphBuilder, cteMap: Map<string, string>): st
 }
 
 function buildInsert(ast: AST, g: GraphBuilder, cteMap: Map<string, string>): string {
-  // Data source at the top (VALUES or SELECT)
   let currentId = '';
 
   if (ast.insert) {
@@ -538,33 +592,30 @@ function buildInsert(ast: AST, g: GraphBuilder, cteMap: Map<string, string>): st
         .map((v: any) => exprToString(v))
         .join(', ');
       const suffix = rowCount > 1 ? ` (+${rowCount - 1} more)` : '';
-      currentId = g.addNode(`📦 VALUES (${preview})${suffix}`, 'values');
+      currentId = g.addNode(`VALUES (${preview})${suffix}`, 'values', g.kwLoc(astLoc(ast.insert), 'VALUES'));
     } else if (ast.insert.type === 'select') {
       currentId = buildSelect(ast.insert, g, cteMap);
     }
   }
 
-  // Column mapping
   if (ast.columns && ast.columns.length > 0) {
     const cols = ast.columns.map((c: any) => c.name ?? c).join(', ');
-    const colId = g.addNode(`📋 (${cols})`, 'select');
+    const colId = g.addNode(`(${cols})`, 'select', spanLoc(ast.columns));
     if (currentId) g.addEdge(currentId, colId, 'insert');
     currentId = colId;
   }
 
-  // INSERT operation
-  const insId = g.addNode(`➕ INSERT`, 'insert');
+  const insId = g.addNode('INSERT', 'insert', astLoc(ast));
   if (currentId) g.addEdge(currentId, insId, 'insert');
   currentId = insId;
 
-  // Target table at the bottom (destination)
-  const tblId = g.addNode(`🎯 ${tblName(ast.into ?? ast)}`, 'table');
+  const tblId = g.addNode(`${tblName(ast.into ?? ast)}`, 'table', astLoc(ast.into));
   g.addEdge(currentId, tblId, 'insert');
   currentId = tblId;
 
   if (ast.returning) {
     const cols = ast.returning.map((r: any) => exprToString(r.expr ?? r)).join(', ');
-    const retId = g.addNode(`↩️ RETURNING ${cols}`, 'returning');
+    const retId = g.addNode(`RETURNING ${cols}`, 'returning', g.kwLoc(spanLoc(ast.returning), 'RETURNING'));
     g.addEdge(currentId, retId, 'returning');
     currentId = retId;
   }
@@ -574,23 +625,23 @@ function buildInsert(ast: AST, g: GraphBuilder, cteMap: Map<string, string>): st
 
 function buildDelete(ast: AST, g: GraphBuilder, cteMap: Map<string, string>): string {
   const tableName = tblName(ast.from ?? ast);
-  const tblId = g.addNode(`📦 ${tableName}`, 'table');
+  const tblId = g.addNode(`${tableName}`, 'table', astLoc(ast.from));
   let currentId = tblId;
 
   if (ast.where) {
-    const wId = g.addNode(`🔍 WHERE ${exprToString(ast.where)}`, 'where');
+    const wId = g.addNode(`WHERE ${exprToString(ast.where)}`, 'where', g.kwLoc(astLoc(ast.where), 'WHERE'));
     g.addEdge(currentId, wId, 'where');
     buildSubqueriesInExpr(ast.where, g, cteMap, wId);
     currentId = wId;
   }
 
-  const delId = g.addNode(`🗑️ DELETE FROM ${tableName}`, 'delete');
+  const delId = g.addNode(`DELETE FROM ${tableName}`, 'delete', astLoc(ast));
   g.addEdge(currentId, delId, 'delete');
   currentId = delId;
 
   if (ast.returning) {
     const cols = ast.returning.map((r: any) => exprToString(r.expr ?? r)).join(', ');
-    const retId = g.addNode(`↩️ RETURNING ${cols}`, 'returning');
+    const retId = g.addNode(`RETURNING ${cols}`, 'returning', g.kwLoc(spanLoc(ast.returning), 'RETURNING'));
     g.addEdge(currentId, retId, 'returning');
     currentId = retId;
   }
@@ -599,7 +650,7 @@ function buildDelete(ast: AST, g: GraphBuilder, cteMap: Map<string, string>): st
 }
 
 function buildCreateTable(ast: AST, g: GraphBuilder): string {
-  const createId = g.addNode(`🏗️ CREATE TABLE ${tblName(ast)}`, 'create');
+  const createId = g.addNode(`CREATE TABLE ${tblName(ast)}`, 'create', astLoc(ast));
   let lastId = createId;
 
   if (ast.columns) {
@@ -613,7 +664,7 @@ function buildCreateTable(ast: AST, g: GraphBuilder): string {
           .filter(Boolean)
           .join(', ');
         const suffix = constraints ? ` [${constraints}]` : '';
-        const colId = g.addNode(`  ${name} ${dataType}${config}${suffix}`, 'column');
+        const colId = g.addNode(`  ${name} ${dataType}${config}${suffix}`, 'column', astLoc(col));
         g.addEdge(createId, colId, 'column');
         lastId = colId;
       }
@@ -629,7 +680,7 @@ function buildWith(ast: AST, g: GraphBuilder): string {
   if (ast.bind && Array.isArray(ast.bind)) {
     for (const cte of ast.bind) {
       const name = cte.alias?.name ?? '?';
-      const cteHeaderId = g.addNode(`📎 CTE: ${name}`, 'cte');
+      const cteHeaderId = g.addNode(`CTE: ${name}`, 'cte', astLoc(cte));
 
       if (cte.statement) {
         // Pass accumulated cteMap so later CTEs can reference earlier ones
@@ -645,18 +696,18 @@ function buildWith(ast: AST, g: GraphBuilder): string {
     return dispatchBuild(ast.in, g, cteMap);
   }
 
-  return cteMap.values().next().value ?? g.addNode('📎 WITH (empty)', 'cte');
+  return cteMap.values().next().value ?? g.addNode('WITH (empty)', 'cte');
 }
 
 function buildWithRecursive(ast: AST, g: GraphBuilder): string {
   const name = ast.alias?.name ?? '?';
   const cols = ast.columnNames?.map((c: any) => c.name ?? c).join(', ');
   const colSuffix = cols ? `(${cols})` : '';
-  const cteId = g.addNode(`🔄 RECURSIVE: ${name}${colSuffix}`, 'cte');
+  const cteId = g.addNode(`RECURSIVE: ${name}${colSuffix}`, 'cte', astLoc(ast));
 
   if (ast.bind) {
     if (ast.bind.type === 'union' || ast.bind.type === 'union all') {
-      const unionId = g.addNode(`🔀 ${ast.bind.type.toUpperCase()}`, 'union');
+      const unionId = g.addNode(`${ast.bind.type.toUpperCase()}`, 'union', astLoc(ast.bind));
       g.addEdge(unionId, cteId, 'cte');
 
       // Base case (left) — no self-reference in scope
@@ -698,7 +749,7 @@ function buildWithRecursive(ast: AST, g: GraphBuilder): string {
 
 function buildUnion(ast: AST, g: GraphBuilder, cteMap: Map<string, string>): string {
   const type = (ast.type ?? 'union').toUpperCase();
-  const unionId = g.addNode(`🔀 ${type}`, 'union');
+  const unionId = g.addNode(`${type}`, 'union', astLoc(ast));
 
   if (ast.left) {
     const leftId = dispatchBuild(ast.left, g, cteMap);
@@ -714,16 +765,16 @@ function buildUnion(ast: AST, g: GraphBuilder, cteMap: Map<string, string>): str
 
 function buildGeneric(ast: AST, g: GraphBuilder): string {
   const type = String(ast.type ?? 'unknown').toUpperCase();
-  const opId = g.addNode(`⚙️ ${type}`, 'operation');
+  const opId = g.addNode(`${type}`, 'operation', astLoc(ast));
 
   const table = ast.table ?? ast.from ?? ast.name;
   if (table) {
-    const tId = g.addNode(`📦 ${tblName(table)}`, 'table');
+    const tId = g.addNode(`${tblName(table)}`, 'table', astLoc(table));
     g.addEdge(tId, opId, 'operation');
   }
 
   if (ast.where) {
-    const wId = g.addNode(`🔍 WHERE ${exprToString(ast.where)}`, 'where');
+    const wId = g.addNode(`WHERE ${exprToString(ast.where)}`, 'where', g.kwLoc(astLoc(ast.where), 'WHERE'));
     g.addEdge(opId, wId, 'where');
     return wId;
   }
@@ -757,7 +808,7 @@ function dispatchBuild(ast: AST, g: GraphBuilder, cteMap: Map<string, string>): 
   }
 }
 
-export function buildFlowFromAST(astInput: unknown): FlowGraph {
+export function buildFlowFromAST(astInput: unknown, sql = ''): FlowGraph {
   if (!astInput) return { nodes: [], edges: [] };
 
   const statements = Array.isArray(astInput) ? astInput : [astInput];
@@ -766,7 +817,7 @@ export function buildFlowFromAST(astInput: unknown): FlowGraph {
   const ast = statements[0] as AST;
   if (!ast || !ast.type) return { nodes: [], edges: [] };
 
-  const g = new GraphBuilder();
+  const g = new GraphBuilder(sql);
   dispatchBuild(ast, g, new Map());
   return g.layout();
 }
