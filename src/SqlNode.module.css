@@ -58,10 +58,20 @@
 }
 
 .handle {
-  width: 6px !important;
-  height: 6px !important;
-  background: var(--node-color, #58a6ff) !important;
+  width: 0 !important;
+  height: 0 !important;
+  background: transparent !important;
   border: none !important;
   min-width: 0 !important;
   min-height: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+.handle[data-handlepos="top"] {
+  top: -6px !important;
+}
+
+.handle[data-handlepos="bottom"] {
+  bottom: -6px !important;
 }

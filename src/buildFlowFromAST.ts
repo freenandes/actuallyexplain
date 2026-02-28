@@ -307,7 +307,7 @@ class GraphBuilder {
     if (this.nodes.length === 0) return { nodes: [], edges: [] };
 
     const g = new dagre.graphlib.Graph();
-    g.setGraph({ rankdir: 'TB', nodesep: 40, ranksep: 80, marginx: 40, marginy: 40 });
+    g.setGraph({ rankdir: 'TB', nodesep: 40, ranksep: 120, marginx: 40, marginy: 40 });
     g.setDefaultEdgeLabel(() => ({}));
 
     for (const n of this.nodes) {
@@ -343,7 +343,7 @@ class GraphBuilder {
           '--node-color': color,
           background: '#1c2129',
           color: '#e6edf3',
-          border: `1px solid ${color}`,
+          border: `1.5px solid ${color}`,
           borderRadius: 8,
           padding: '10px 16px',
           fontSize: 13,
@@ -355,8 +355,8 @@ class GraphBuilder {
 
     const arrow = {
       type: MarkerType.ArrowClosed,
-      width: 16,
-      height: 16,
+      width: 20,
+      height: 20,
     };
 
     const flowEdges: Edge[] = this.edges.map((e, i) => {
@@ -380,8 +380,8 @@ class GraphBuilder {
           },
           style: {
             stroke: '#d2a8ff',
-            strokeDasharray: '6 3',
-            strokeWidth: 2,
+            strokeDasharray: '3 3',
+            strokeWidth: 1.5,
           },
         };
       }
@@ -391,7 +391,11 @@ class GraphBuilder {
         target: e.target,
         animated: true,
         markerEnd: { ...arrow, color },
-        style: { stroke: color },
+        style: {
+          stroke: color,
+          strokeDasharray: '6 6',
+          strokeWidth: 1.5,
+        },
       };
     });
 
