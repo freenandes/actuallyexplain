@@ -312,6 +312,7 @@ function AppInner() {
               padding: { top: 16 },
               wordWrap: 'on',
               automaticLayout: true,
+              contextmenu: false,
             }}
           />
         </div>
@@ -336,6 +337,8 @@ function AppInner() {
               onPaneClick={handlePaneClick}
               proOptions={{ hideAttribution: true }}
               colorMode="dark"
+              edgesFocusable={false}
+              edgesReconnectable={false}
             >
               <Background
                 variant={BackgroundVariant.Dots}
