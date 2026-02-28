@@ -14,6 +14,7 @@
     "@types/dagre": "^0.7.54",
     "@xyflow/react": "^12.10.1",
     "dagre": "^0.8.5",
+    "lucide-react": "^0.575.0",
     "pgsql-ast-parser": "^12.0.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"

@@ -1,3 +1,9 @@
+To do:
+
+- Test more queries for the bi-directional highlighting accuracy
+
+---
+
 Useful commands:
 
 | Command            | What it does                                          |
