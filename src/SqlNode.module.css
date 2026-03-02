@@ -1,60 +1,65 @@
 .wrapper {
+  font-family: 'Martian Mono', monospace;
+  font-size: 1rem;
   display: flex;
   flex-direction: column;
-  gap: 6px;
   min-width: 0;
+  padding: 0;
+  background: var(--bg-2);
+  color: var(--tx);
+  border: 2px solid var(--node-color, var(--ui-3));
+  border-radius: var(--br-lg);
+  overflow: hidden;
 }
 
 .header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  color: var(--node-color, #58a6ff);
-  opacity: 0.7;
-  font-size: 10px;
-  line-height: 1.2;
+  gap: 0.25em;
   min-width: 0;
+  padding: 0 0 0 0.75em;
+  color: var(--node-color, var(--cy));
 }
 
 .rawCode {
+  font-size: 0.625rem;
+  font-weight: 475;
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  min-width: 0;
-  flex: 1;
-  letter-spacing: 0.02em;
 }
 
 .infoBtn {
-  flex-shrink: 0;
+  font-size: 1rem;
   display: flex;
-  align-items: center;
+  flex-shrink: 0;
   justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 4px;
+  align-items: center;
+  padding: 0.75rem;
+  border-radius: var(--br-sm);
   border: none;
+  color: var(--tx-2);
   background: transparent;
-  color: var(--node-color, #58a6ff);
-  opacity: 0.4;
   cursor: pointer;
-  padding: 0;
-  transition: opacity 0.15s, background 0.15s;
+  transition: background 0.15s;
 }
 
 .infoBtn:hover {
-  opacity: 1;
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--ui);
 }
 
 .body {
-  font-size: 12px;
-  line-height: 1.35;
-  color: #e6edf3;
-  overflow: hidden;
+  font-size: 0.75rem;
+  font-weight: 325;
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
+  padding: 0 0.75rem 0.75rem;
+  color: var(--tx);
+  overflow: hidden;
 }
 
 .handle {
@@ -69,9 +74,9 @@
 }
 
 .handle[data-handlepos="top"] {
-  top: -6px !important;
+  top: -4px !important;
 }
 
 .handle[data-handlepos="bottom"] {
-  bottom: -6px !important;
+  bottom: -4px !important;
 }

@@ -78,7 +78,7 @@
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 6px;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-family: 'Martian Mono', monospace;
   font-size: 11px;
   line-height: 1.5;
   color: #8b949e;
@@ -121,7 +121,7 @@
   background: rgba(88, 166, 255, 0.1);
   border: 1px solid rgba(88, 166, 255, 0.2);
   border-radius: 4px;
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-family: 'Martian Mono', monospace;
   font-size: 11.5px;
   color: #79c0ff;
   word-break: break-word;
@@ -143,4 +143,26 @@
 .docsLink:hover {
   color: #79c0ff;
   text-decoration: underline;
+}
+
+/* ─── Mobile: full-screen panel ─── */
+
+@media (max-width: 640px) {
+  .panel {
+    width: 100%;
+    height: 100%;
+    border-left: none;
+    animation: mobileSlideUp 0.25s ease-out;
+  }
+
+  @keyframes mobileSlideUp {
+    from { transform: translateY(40px); opacity: 0; }
+    to   { transform: translateY(0);    opacity: 1; }
+  }
+
+  .closeBtn {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+  }
 }

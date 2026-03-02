@@ -4,23 +4,25 @@ import {
   Database,
   Link,
   Filter,
-  LayoutList,
-  Rows4,
   ArrowUpDown,
-  Repeat,
   Trash2,
-  SquarePlus,
-  Pencil,
   Scissors,
-  GitMerge,
-  PenLine,
-  CornerDownLeft,
+  ArrowLeftFromLine,
   Settings,
-  Hammer,
   Columns3,
   Crosshair,
-  Info,
+  BookOpen,
+  Braces,
   type LucideIcon,
+  SquaresUnite,
+  Group,
+  Repeat2,
+  BetweenHorizonalStart,
+  SquarePen,
+  SquarePlus,
+  Cog,
+  Replace,
+  SquareDashedMousePointer,
 } from 'lucide-react';
 import { NodeActionsContext } from './NodeActionsContext';
 import styles from './SqlNode.module.css';
@@ -30,21 +32,21 @@ const kindIcons: Record<string, LucideIcon> = {
   join: Link,
   where: Filter,
   having: Filter,
-  select: LayoutList,
-  groupby: Rows4,
+  select: SquareDashedMousePointer,
+  groupby: Group,
   orderby: ArrowUpDown,
   limit: Scissors,
-  cte: Repeat,
-  union: GitMerge,
-  values: Database,
-  insert: SquarePlus,
-  update: Pencil,
+  cte: Repeat2,
+  union: SquaresUnite,
+  values: Braces,
+  insert: BetweenHorizonalStart,
+  update: SquarePen,
   delete: Trash2,
-  create: Hammer,
+  create: SquarePlus,
   column: Columns3,
-  set: PenLine,
-  returning: CornerDownLeft,
-  operation: Settings,
+  set: Replace,
+  returning: ArrowLeftFromLine,
+  operation: Cog,
   target: Crosshair,
 };
 
@@ -58,17 +60,17 @@ export default function SqlNode({ id, data }: NodeProps) {
       <Handle type="target" position={Position.Top} className={styles.handle} />
       <div className={styles.wrapper}>
         <div className={styles.header}>
-          <Icon size={12} />
+          <Icon size={16} />
           <span className={styles.rawCode}>{data.label as string}</span>
           <button
             className={styles.infoBtn}
             title="Open details panel"
             onClick={(e) => { e.stopPropagation(); openDetails(id); }}
           >
-            <Info size={12} />
+            <BookOpen size={16} />
           </button>
         </div>
-        <div className={styles.body}>{data.plainEnglish as string}</div>
+        <p className={styles.body}>{data.plainEnglish as string}</p>
       </div>
       <Handle type="source" position={Position.Bottom} className={styles.handle} />
     </>

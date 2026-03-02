@@ -1,3 +1,4 @@
+
 *,
 *::before,
 *::after {
@@ -7,20 +8,41 @@
 }
 
 :root {
-  --bg-primary: #0d1117;
-  --bg-secondary: #161b22;
-  --bg-tertiary: #1c2129;
-  --border-color: #30363d;
-  --text-primary: #e6edf3;
-  --text-secondary: #8b949e;
-  --accent: #58a6ff;
-  --accent-dim: #1f6feb;
+  --bg: #100F0F;
+  --bg-2: #1C1B1A;
+  --ui: #282726;
+  --ui-2: #343331;
+  --ui-3: #403E3C;
+  --tx: #E6E4D9;
+  --tx-2: #9F9D96;
+  --tx-3: #6F6E69;
+  --re: #E8705F;
+  --re-2: #AF3029;
+  --or: #EC8B49;
+  --or-2: #BC5215;
+  --ye: #DFB431;
+  --ye-2: #AD8301;
+  --gr: #A0AF54;
+  --gr-2: #66800B;
+  --cy: #5ABDAC;
+  --cy-2: #24837B;
+  --bl: #66A0C8;
+  --bl-2: #205EA6;
+  --pu: #A699D0;
+  --pu-2: #5E409D;
+  --ma: #E47DA8;
+  --ma-2: #A02F6F;
 
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-  color: var(--text-primary);
-  background-color: var(--bg-primary);
+  --br-sm: 0.1875rem;
+  --br-md: 0.3125rem;
+  --br-lg: 0.5rem;
+  --br-xl: 0.8125rem;
+
+  font-family: 'Inclusive Sans', system-ui, -apple-system, sans-serif;
+  line-height: 1.375;
+  font-weight: 450;
+  color: var(--tx);
+  background-color: var(--bg);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -37,13 +59,61 @@ body,
 }
 
 /* Monaco Editor: highlighted SQL range when linked to a React Flow node */
+
 .sql-highlight {
-  background-color: rgba(88, 166, 255, 0.15);
-  border-bottom: 2px solid rgba(88, 166, 255, 0.5);
-  border-radius: 2px;
+  background-color: color-mix(in srgb, var(--cy) 25%, transparent);
+  border-radius: var(--br-sm) var(--br-sm) 0 0;
+  border-bottom: 2px solid var(--cy);
+}
+
+/* React Flow theme overrides (middle-tier vars to beat .dark defaults) */
+
+.react-flow.dark {
+  --xy-background-color: var(--bg);
+  --xy-background-pattern-color: var(--ui-2);
+
+  --xy-controls-button-background-color: var(--bg);
+  --xy-controls-button-background-color-hover: var(--bg-2);
+  --xy-controls-button-color: var(--tx-2);
+  --xy-controls-button-color-hover: var(--tx);
+  --xy-controls-button-border-color: var(--ui-3);
+
+  --xy-node-background-color: var(--bg-2);
+  --xy-node-color: var(--tx);
+  --xy-node-border: 1px solid var(--ui-3);
+  --xy-node-border-radius: var(--br-sm);
+  --xy-node-boxshadow-hover: none;
+  --xy-node-boxshadow-selected: 0 0 0 1px var(--cy);
+  --xy-node-group-background-color: transparent;
+}
+
+.react-flow__node-sql {
+  border-radius: var(--br-lg);
+  box-shadow: 0 0.5em 0.5em 0.25em rgba(0, 0, 0, 0.2);
+}  
+
+.react-flow__panel {
+  margin: 1rem !important;
+}
+
+.react-flow__controls {
+  border: 1px solid var(--ui-3);
+  border-radius: var(--br-md);
+  overflow: hidden;
+}
+
+.react-flow__controls-button {
+  width: 2.5rem !important;
+  height: 2.5rem !important;
+}
+
+.react-flow__controls-button svg {
+  max-width: 1rem !important;
+  max-height: 1rem !important;
 }
 
 /* Disable pointer interactivity on React Flow edges/connectors */
+
 .react-flow__edge {
   pointer-events: none !important;
   cursor: default !important;
