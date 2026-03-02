@@ -65,7 +65,7 @@ function shortenError(msg: string): string {
   return firstLine.length > 120 ? firstLine.slice(0, 117) + '…' : firstLine;
 }
 
-const HIGHLIGHT_GLOW = '0 0 0 2px #58a6ff, 0 0 16px rgba(88, 166, 255, 0.4)';
+const HIGHLIGHT_GLOW = '0 0 0 2px rgb(90, 189, 172), 0 0 16px 8px rgba(90, 189, 172, 0.67)';
 
 function findNodeAtOffset(nodes: Node[], offset: number): Node | null {
   let best: Node | null = null;
@@ -90,6 +90,7 @@ function AppInner() {
   const [parseError, setParseError] = useState<string | null>(null);
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+  const [mobileView, setMobileView] = useState<'editor' | 'diagram'>('editor');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { fitView } = useReactFlow();
 
@@ -167,6 +168,13 @@ function AppInner() {
     prevNodeCount.current = nodes.length;
   }, [nodes, fitView]);
 
+  useEffect(() => {
+    if (mobileView === 'diagram') {
+      const t = setTimeout(() => fitView({ padding: 0.2, duration: 200 }), 50);
+      return () => clearTimeout(t);
+    }
+  }, [mobileView, fitView]);
+
   const handleChange = useCallback(
     (value: string | undefined) => {
       const next = value ?? '';
@@ -180,6 +188,49 @@ function AppInner() {
     editorRef.current = editor;
     monacoRef.current = monaco;
     decorationsRef.current = editor.createDecorationsCollection([]);
+
+    monaco.editor.defineTheme('actuallyexplain', {
+      base: 'vs-dark',
+      inherit: true,
+      rules: [
+        { token: '',                       foreground: 'E6E4D9' },
+        { token: 'keyword.sql',            foreground: '66A0C8' },
+        { token: 'string.sql',             foreground: 'EC8B49' },
+        { token: 'string.double.sql',      foreground: 'EC8B49' },
+        { token: 'number.sql',             foreground: 'DFB431' },
+        { token: 'number.hex.sql',         foreground: 'E47DA8' },
+        { token: 'comment.sql',            foreground: 'A0AF54', fontStyle: 'italic' },
+        { token: 'comment.block.sql',      foreground: 'A0AF54', fontStyle: 'italic' },
+        { token: 'operator.sql',           foreground: 'A699D0' },
+        { token: 'operator.keyword.sql',   foreground: '66A0C8' },
+        { token: 'identifier.sql',         foreground: 'E6E4D9' },
+        { token: 'type.sql',               foreground: '5ABDAC' },
+        { token: 'predefined.sql',         foreground: '66A0C8' },
+        { token: 'delimiter.sql',          foreground: '9F9D96' },
+        { token: 'white.sql',              foreground: 'E6E4D9' },
+      ],
+      colors: {
+        'editor.background': '#100F0F',
+        'editor.foreground': '#E6E4D9',
+        'editor.lineHighlightBackground': '#5ABDAC22',
+        'editor.selectionBackground': '#5ABDAC44',
+        'editor.inactiveSelectionBackground': '#5ABDAC33',
+        'editorLineNumber.foreground': '#6F6E69',
+        'editorLineNumber.activeForeground': '#E6E4D9',
+        'editorCursor.foreground': '#5ABDAC',
+        'scrollbarSlider.background': '#E6E4D922',
+        'scrollbarSlider.hoverBackground': '#E6E4D944',
+        'scrollbarSlider.activeBackground': '#E6E4D966',
+      },
+    });
+    monaco.editor.setTheme('actuallyexplain');
+
+    // Let Cmd/Ctrl+F and Cmd/Ctrl+H pass through to the browser instead of Monaco's find widget
+    editor.getDomNode()?.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'f' || e.key === 'h')) {
+        e.stopPropagation();
+      }
+    }, true);
 
     editor.onDidChangeCursorPosition((e) => {
       if (suppressCursorRef.current) return;
@@ -281,20 +332,21 @@ function AppInner() {
   }, [nodes, highlightedNodeId]);
 
   return (
-    <div className={styles.container}>
+    <div className={styles.container} data-mobile-view={mobileView}>
       {/* ─── Left: SQL Editor ─── */}
       <aside className={styles.editorPane}>
-        <div className={styles.paneHeader}>
-          <span className={styles.paneHeaderIcon}>⟫</span>
-          SQL Input
-          {parseError && (
-            <span className={styles.errorBadge} title={parseError}>
-              syntax error
-            </span>
-          )}
+        <div className={`${styles.paneHeader}`}>
+          <h1 className={styles.appName}>
+            <span className={styles.appNameA}>actually</span>
+            <span className={styles.appNameB}>explain</span>
+            {/* <span className={styles.appNameC}>.me</span> */}
+          </h1>
+          <h2 className={styles.sqlFlavor}>PostgreSQL</h2>
         </div>
         {parseError && (
-          <div className={styles.errorBar}>{shortenError(parseError)}</div>
+          <div className={styles.errorBar}>
+            <p>{shortenError(parseError)}</p>
+          </div>
         )}
         <div className={styles.editorWrapper}>
           <Editor
@@ -302,17 +354,25 @@ function AppInner() {
             defaultValue={DEFAULT_SQL}
             onChange={handleChange}
             onMount={handleEditorMount}
-            theme="vs-dark"
+            theme="actuallyexplain"
             options={{
               minimap: { enabled: false },
               fontSize: 14,
-              fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+              fontFamily: "'Martian Mono', monospace",
+              fontWeight: "475",
+              lineHeight: 1.5,
               lineNumbers: 'on',
+              lineNumbersMinChars: 3,
+              lineDecorationsWidth: 0,
+              glyphMargin: false,
+              padding: { top: 12, bottom: 12 },
               scrollBeyondLastLine: false,
-              padding: { top: 16 },
               wordWrap: 'on',
               automaticLayout: true,
               contextmenu: false,
+              quickSuggestions: false,
+              suggestOnTriggerCharacters: false,
+              find: { addExtraSpaceOnTop: false, seedSearchStringFromSelection: 'never' },
             }}
           />
         </div>
@@ -320,10 +380,6 @@ function AppInner() {
 
       {/* ─── Right: Flow Canvas ─── */}
       <main className={styles.flowPane}>
-        <div className={styles.paneHeader}>
-          <span className={styles.paneHeaderIcon}>◈</span>
-          Query Plan
-        </div>
         <div className={styles.flowWrapper}>
           <NodeActionsContext.Provider value={nodeActions}>
             <ReactFlow
@@ -342,27 +398,40 @@ function AppInner() {
             >
               <Background
                 variant={BackgroundVariant.Dots}
-                gap={20}
-                size={1}
-                color="#30363d"
+                gap={24}
+                size={2}
               />
-              <Controls
-                showInteractive={false}
-                style={{
-                  background: '#161b22',
-                  border: '1px solid #30363d',
-                  borderRadius: 8,
-                }}
-              />
+              <Controls showInteractive={false} />
             </ReactFlow>
           </NodeActionsContext.Provider>
-          {selectedNode && (
-            <div style={{ '--node-color': selectedNode.style?.['--node-color' as keyof typeof selectedNode.style] ?? '#58a6ff' } as React.CSSProperties}>
-              <NodeDetailsPanel node={selectedNode} onClose={handleClosePanel} />
-            </div>
-          )}
         </div>
       </main>
+
+      {/* ─── Details overlay (container-level for mobile full-screen) ─── */}
+      {selectedNode && (
+        <div
+          className={styles.detailsOverlay}
+          style={{ '--node-color': selectedNode.style?.['--node-color' as keyof typeof selectedNode.style] ?? '#58a6ff' } as React.CSSProperties}
+        >
+          <NodeDetailsPanel node={selectedNode} onClose={handleClosePanel} />
+        </div>
+      )}
+
+      {/* ─── Mobile bottom nav ─── */}
+      <nav className={styles.mobileNav}>
+        <button
+          className={`${styles.mobileNavBtn} ${mobileView === 'editor' ? styles.mobileNavBtnActive : ''}`}
+          onClick={() => setMobileView('editor')}
+        >
+          <span>⟫</span> Code
+        </button>
+        <button
+          className={`${styles.mobileNavBtn} ${mobileView === 'diagram' ? styles.mobileNavBtnActive : ''}`}
+          onClick={() => setMobileView('diagram')}
+        >
+          <span>◈</span> Diagram
+        </button>
+      </nav>
     </div>
   );
 }

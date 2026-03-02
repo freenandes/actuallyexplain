@@ -6,32 +6,32 @@ import dagre from 'dagre';
 type AST = Record<string, any>;
 
 const NODE_WIDTH = 280;
-const NODE_HEIGHT = 70;
+const NODE_HEIGHT = 80;
 const MAX_LABEL = 80;
 
 const nodeColors: Record<string, string> = {
-  table: '#3fb950',
-  join: '#d29922',
-  where: '#f85149',
-  select: '#58a6ff',
-  orderby: '#bc8cff',
-  groupby: '#f778ba',
-  having: '#f778ba',
-  update: '#d29922',
-  set: '#e3b341',
-  insert: '#58a6ff',
-  values: '#bc8cff',
-  delete: '#f85149',
-  create: '#3fb950',
-  column: '#8b949e',
-  drop: '#f85149',
-  alter: '#d29922',
-  action: '#bc8cff',
-  operation: '#58a6ff',
-  cte: '#d2a8ff',
-  limit: '#8b949e',
-  returning: '#79c0ff',
-  union: '#d2a8ff',
+  table: '#879A39',
+  join: '#3AA99F',
+  where: '#D0A215',
+  select: '#4385BE',
+  orderby: '#8B7EC8',
+  groupby: '#CE5D97',
+  having: '#D0A215',
+  update: '#DA702C',
+  set: '#D0A215',
+  insert: '#DA702C',
+  values: '#8B7EC8',
+  delete: '#D14D41',
+  create: '#879A39',
+  column: '#9F9D96',
+  drop: '#D14D41',
+  alter: '#D0A215',
+  action: '#8B7EC8',
+  operation: '#4385BE',
+  cte: '#3AA99F',
+  limit: '#9F9D96',
+  returning: '#CE5D97',
+  union: '#8B7EC8',
 };
 
 
@@ -341,13 +341,6 @@ class GraphBuilder {
         },
         style: {
           '--node-color': color,
-          background: '#1c2129',
-          color: '#e6edf3',
-          border: `1.5px solid ${color}`,
-          borderRadius: 8,
-          padding: '10px 16px',
-          fontSize: 13,
-          fontFamily: "'JetBrains Mono', monospace",
           width: NODE_WIDTH,
         } as React.CSSProperties,
       };
@@ -355,12 +348,12 @@ class GraphBuilder {
 
     const arrow = {
       type: MarkerType.ArrowClosed,
-      width: 20,
-      height: 20,
+      width: 16,
+      height: 16,
     };
 
     const flowEdges: Edge[] = this.edges.map((e, i) => {
-      const color = nodeColors[e.kind] ?? '#58a6ff';
+      const color = nodeColors[e.kind] ?? '#4385BE';
       if (e.isRecursive) {
         const srcPos = g.node(e.source);
         const tgtPos = g.node(e.target);
@@ -370,7 +363,7 @@ class GraphBuilder {
           target: e.target,
           type: 'recursive',
           animated: true,
-          markerEnd: { ...arrow, color: '#d2a8ff' },
+          markerEnd: { ...arrow, color: '#3AA99F' },
           data: {
             fromX: srcPos.x + NODE_WIDTH / 2,
             fromY: srcPos.y,
@@ -379,9 +372,9 @@ class GraphBuilder {
             loopX: maxRightX + 80,
           },
           style: {
-            stroke: '#d2a8ff',
+            stroke: '#3AA99F',
             strokeDasharray: '3 3',
-            strokeWidth: 1.5,
+            strokeWidth: 2,
           },
         };
       }
@@ -394,7 +387,7 @@ class GraphBuilder {
         style: {
           stroke: color,
           strokeDasharray: '6 6',
-          strokeWidth: 1.5,
+          strokeWidth: 2,
         },
       };
     });
