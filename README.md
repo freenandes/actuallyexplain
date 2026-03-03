@@ -10,6 +10,13 @@ Right now, it just maps the logical intent. In the future, we want to help flag 
 
 Open source under the MIT license. You're welcome to view the code, suggest stuff and contribute.
 
+## Contributing
+
+1. Fork the repo and clone it
+2. `npm install` then `npm run dev` to start the local server
+3. Make your changes, run `npm run build` to check for errors
+4. Open a pull request
+
 ### Tech
 
 - **React 19** + **TypeScript**, bundled with **Vite**
@@ -22,7 +29,6 @@ Open source under the MIT license. You're welcome to view the code, suggest stuf
 
 All source lives in `src/`. Key files:
 
-
 | File                    | Role                                                            |
 | ----------------------- | --------------------------------------------------------------- |
 | `App.tsx`               | Root component — wires together the editor, diagram, and panels |
@@ -32,14 +38,6 @@ All source lives in `src/`. Key files:
 | `NodeDetailsPanel.tsx`  | Side panel that shows details when a node is selected           |
 | `AboutModal.tsx`        | About dialog                                                    |
 | `NodeActionsContext.ts` | React context for node interaction callbacks                    |
-
-
-### Contributing
-
-1. Fork the repo and clone it
-2. `npm install` then `npm run dev` to start the local server
-3. Make your changes, run `npm run build` to check for errors
-4. Open a pull request
 
 ### To do
 
@@ -53,7 +51,7 @@ All source lives in `src/`. Key files:
 - Support other SQL flavors
 - Digest execution plans and provide performance stats
 
-### Looking for something else?
+## Looking for something else?
 
 actuallyEXPLAIN is built for logical intent (understanding what the code means). If that's not what you need right now, check out these great tools:
 
