@@ -50,3 +50,4 @@ All source lives in `src/`. Key files:
 - Dictionary for maintenance commands with static heuristic warnings
 - Export functionality
 - BYOK AI chat for "further explain"
+- Support other SQL flavors
