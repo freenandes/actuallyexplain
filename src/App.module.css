@@ -18,10 +18,10 @@
 
 .paneHeader {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   flex-wrap: wrap;
   gap: 0.5em;
-  padding: 1em 1em 0.75em;
+  padding: 0.25em 0.25em 0.25em 1em;
   color: var(--tx);
   background-color: var(--bg);
 }
@@ -38,7 +38,7 @@ h1.appName {
 }
 
 h2.sqlFlavor {
-  font-size: 0.875em;
+  font-size: 0.875rem;
   font-weight: 425;
   line-height: 1;
   color: var(--tx-2);
@@ -46,6 +46,27 @@ h2.sqlFlavor {
 
 .paneHeaderIcon {
   font-size: 1rem;
+}
+
+.aboutBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 2.5rem;
+  height: 2.5rem;
+  margin-left: auto;
+  border-radius: var(--br-md);
+  border: none;
+  color: var(--tx-2);
+  background: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.aboutBtn:hover {
+  color: var(--tx);
+  background: var(--bg-2);
 }
 
 @keyframes fadeIn {
@@ -133,7 +154,7 @@ h2.sqlFlavor {
   bottom: 0;
   left: 50%;
   transform: translateX(-50%);
-  width: 4rem;
+  width: 3rem;
   height: 0.125rem;
   border-radius: var(--br-sm) var(--br-sm) 0 0;
   background: var(--cy);
@@ -150,6 +171,11 @@ h2.sqlFlavor {
     width: 100%;
     min-width: 0;
     border-right: none;
+    overflow: hidden;
+  }
+
+  .editorWrapper {
+    padding-bottom: 4.5rem;
   }
 
   .flowPane {
