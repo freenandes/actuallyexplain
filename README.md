@@ -51,3 +51,10 @@ All source lives in `src/`. Key files:
 - Export functionality
 - BYOK AI chat for "further explain"
 - Support other SQL flavors
+
+### Looking for something else?
+
+actuallyEXPLAIN is built for logical intent (understanding what the code means). If that's not what you need right now, check out these great tools:
+
+- Fix slow queries and visualize your actual Postgres execution plans with [explain.dalibo.com](https://explain.dalibo.com/) or [explain.depesz.com](https://explain.depesz.com/).
+- Track data across 100s of tables with a tool like [SQLFlow](https://sqlflow.gudusoft.com/).
