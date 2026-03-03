@@ -12,6 +12,7 @@
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
     "@types/dagre": "^0.7.54",
+    "@vercel/analytics": "^1.6.1",
     "@xyflow/react": "^12.10.1",
     "dagre": "^0.8.5",
     "lucide-react": "^0.575.0",

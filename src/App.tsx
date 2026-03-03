@@ -17,6 +17,7 @@ import '@xyflow/react/dist/style.css';
 import { parse } from 'pgsql-ast-parser';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import type * as Monaco from 'monaco-editor';
+import { Analytics } from '@vercel/analytics/react';
 import { CircleQuestionMark, Code2, Workflow } from 'lucide-react';
 import AboutModal from './AboutModal';
 import { buildFlowFromAST, type AstLoc } from './buildFlowFromAST';
@@ -494,6 +495,7 @@ function App() {
   return (
     <ReactFlowProvider>
       <AppInner />
+      <Analytics />
     </ReactFlowProvider>
   );
 }
