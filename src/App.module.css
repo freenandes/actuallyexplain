@@ -11,7 +11,7 @@
   display: flex;
   flex-direction: column;
   width: 25%;
-  min-width: 20em;
+  min-width: 22.5rem;
   background-color: var(--bg);
   border-right: 1px solid var(--ui-3);
 }
@@ -98,42 +98,52 @@ h2.sqlFlavor {
 .mobileNavBtn {
   flex: 1;
   position: relative;
+  font-size: 0.75rem;
+  font-weight: 625;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.0625em;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 0.5em;
+  padding: 0.625rem;
+  color: var(--tx-3);
   background: none;
   border: none;
-  color: #484f58;
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   cursor: pointer;
   transition: color 0.2s;
 }
 
+.mobileNavBtn:hover {
+  color: var(--tx-2);
+}
+
 .mobileNavBtnActive {
-  color: #c9d1d9;
+  color: var(--tx);
+}
+
+.mobileNavBtnActive:hover {
+  color: var(--tx);
 }
 
 .mobileNavBtnActive::after {
   content: '';
   position: absolute;
-  bottom: 6px;
+  bottom: 0;
   left: 50%;
   transform: translateX(-50%);
-  width: 16px;
-  height: 2px;
-  border-radius: 1px;
-  background: #58a6ff;
+  width: 4rem;
+  height: 0.125rem;
+  border-radius: var(--br-sm) var(--br-sm) 0 0;
+  background: var(--cy);
 }
 
-/* ─── Mobile Layout (<640px) ─── */
+/* ─── Mobile Layout (<720px) ─── */
 
-@media (max-width: 640px) {
+@media (max-width: 720px) {
   .container {
-    height: calc(100% - 48px);
+    height: 100%;
   }
 
   .editorPane {
@@ -158,14 +168,14 @@ h2.sqlFlavor {
   .mobileNav {
     display: flex;
     position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    height: 48px;
-    z-index: 20;
-    background: var(--bg-2);
-    border-top: 1px solid var(--ui-3);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    right: 1rem;
+    bottom: 1rem;
+    left: 1rem;
+    z-index: 40;
+    background: var(--bg);
+    border: 1px solid var(--ui);
+    border-radius: var(--br-md);
+    overflow: hidden;
   }
 
   .detailsOverlay {

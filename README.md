@@ -6,6 +6,7 @@ By parsing opaque queries into a readable node graph, it clearly reveals the exa
 
 ### Dev commands
 
+
 | Command            | What it does                                          |
 | ------------------ | ----------------------------------------------------- |
 | `npm run dev`      | Start the dev server with hot reload                  |
@@ -15,6 +16,7 @@ By parsing opaque queries into a readable node graph, it clearly reveals the exa
 
 
 ### Front-end customization
+
 
 | What                                    | Where                                    | Notes                                                               |
 | --------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------- |
@@ -44,8 +46,7 @@ By parsing opaque queries into a readable node graph, it clearly reveals the exa
 
 ### To do
 
-- Style side panel
-- Style syntax error
 - Add html metadata and graphics
 - Write readme
 - About page/modal
+

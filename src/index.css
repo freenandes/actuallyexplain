@@ -76,28 +76,33 @@ body,
   --xy-controls-button-background-color-hover: var(--bg-2);
   --xy-controls-button-color: var(--tx-2);
   --xy-controls-button-color-hover: var(--tx);
-  --xy-controls-button-border-color: var(--ui-3);
+  --xy-controls-button-border-color: var(--ui);
 
   --xy-node-background-color: var(--bg-2);
   --xy-node-color: var(--tx);
-  --xy-node-border: 1px solid var(--ui-3);
-  --xy-node-border-radius: var(--br-sm);
+  --xy-node-border: 2px solid var(--ui-3);
+  --xy-node-border-radius: var(--br-lg);
   --xy-node-boxshadow-hover: none;
-  --xy-node-boxshadow-selected: 0 0 0 1px var(--cy);
-  --xy-node-group-background-color: transparent;
+  --xy-node-boxshadow-selected: 0 0 16px 6px rgba(90, 189, 172, 0.3);
 }
 
 .react-flow__node-sql {
   border-radius: var(--br-lg);
-  box-shadow: 0 0.5em 0.5em 0.25em rgba(0, 0, 0, 0.2);
+  box-shadow: 0 0.5em 0.5em 0.25em rgba(0, 0, 0, 0.3);
 }  
 
 .react-flow__panel {
   margin: 1rem !important;
 }
 
+@media (max-width: 720px) {
+  .react-flow__panel {
+    margin-bottom: 4.5rem !important;
+  }
+}
+
 .react-flow__controls {
-  border: 1px solid var(--ui-3);
+  border: 1px solid var(--ui);
   border-radius: var(--br-md);
   overflow: hidden;
 }
@@ -108,8 +113,8 @@ body,
 }
 
 .react-flow__controls-button svg {
-  max-width: 1rem !important;
-  max-height: 1rem !important;
+  max-width: 0.75rem !important;
+  max-height: 0.75rem !important;
 }
 
 /* Disable pointer interactivity on React Flow edges/connectors */
