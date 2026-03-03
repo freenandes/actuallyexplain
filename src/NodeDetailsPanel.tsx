@@ -1,53 +1,10 @@
 import { type Node } from '@xyflow/react';
 import {
-  Database,
-  Link,
-  Filter,
-  LayoutList,
-  Rows4,
-  ArrowUpDown,
-  Repeat,
-  Trash2,
-  SquarePlus,
-  Pencil,
-  Scissors,
-  GitMerge,
-  PenLine,
-  CornerDownLeft,
-  Settings,
-  Hammer,
-  Columns3,
-  Crosshair,
   X,
   ExternalLink,
-  type LucideIcon,
 } from 'lucide-react';
+import { kindIcons } from './SqlNode';
 import styles from './NodeDetailsPanel.module.css';
-
-// ── Icon map (mirrors SqlNode) ──
-
-const kindIcons: Record<string, LucideIcon> = {
-  table: Database,
-  join: Link,
-  where: Filter,
-  having: Filter,
-  select: LayoutList,
-  groupby: Rows4,
-  orderby: ArrowUpDown,
-  limit: Scissors,
-  cte: Repeat,
-  union: GitMerge,
-  values: Database,
-  insert: SquarePlus,
-  update: Pencil,
-  delete: Trash2,
-  create: Hammer,
-  column: Columns3,
-  set: PenLine,
-  returning: CornerDownLeft,
-  operation: Settings,
-  target: Crosshair,
-};
 
 // ── Encyclopedia: standard definitions + docs ──
 
@@ -289,35 +246,36 @@ function renderWithCode(text: string) {
 interface Props {
   node: Node;
   onClose: () => void;
+  isClosing?: boolean;
 }
 
-export default function NodeDetailsPanel({ node, onClose }: Props) {
+export default function NodeDetailsPanel({ node, onClose, isClosing = false }: Props) {
   const kind = (node.data.kind as string) ?? 'operation';
   const label = node.data.label as string;
-  const Icon = kindIcons[kind] ?? Settings;
+  const Icon = kindIcons[kind] ?? kindIcons.operation;
   const entry = encyclopedia[kind] ?? encyclopedia.operation;
   const context = generateDetailedContext(kind, label);
   const color = `var(--node-color, #58a6ff)`;
 
   return (
-    <div className={styles.panel}>
+    <div className={`${styles.panel} ${isClosing ? styles.panelClosing : ''}`}>
       {/* ── Header ── */}
-      <div className={styles.header}>
-        <div className={styles.headerTitle}>
-          <Icon size={18} style={{ color, flexShrink: 0 }} />
-          <span className={styles.operationName}>{entry.title}</span>
-        </div>
+      <header className={styles.header}>
+        <h3 className={styles.headerTitle}>
+          <Icon size={20} style={{ color, flexShrink: 0 }} />
+          <span className={styles.operationName} style={{ color }}>{entry.title}</span>
+        </h3>
         <button className={styles.closeBtn} onClick={onClose} aria-label="Close panel">
-          <X size={16} />
+          <X size={20} />
         </button>
-      </div>
+      </header>
 
       {/* ── Raw SQL ── */}
-      <div className={styles.rawSql}>{label}</div>
+      <pre className={styles.rawSql}>{label}</pre>
 
       {/* ── Encyclopedia ── */}
       <section className={styles.section}>
-        <h3 className={styles.sectionTitle}>Definition</h3>
+        <h4 className={styles.sectionTitle}>Definition</h4>
         <p className={styles.sectionBody}>{entry.definition}</p>
         <a
           href={entry.docsUrl}
@@ -325,14 +283,14 @@ export default function NodeDetailsPanel({ node, onClose }: Props) {
           rel="noopener noreferrer"
           className={styles.docsLink}
         >
-          <ExternalLink size={12} />
           PostgreSQL Docs
+          <ExternalLink size={16} />
         </a>
       </section>
 
       {/* ── Contextual Explanation ── */}
       <section className={styles.section}>
-        <h3 className={styles.sectionTitle}>In this query</h3>
+        <h4 className={styles.sectionTitle}>In this query</h4>
         <p className={styles.sectionBody}>{renderWithCode(context)}</p>
       </section>
     </div>

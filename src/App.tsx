@@ -17,6 +17,7 @@ import '@xyflow/react/dist/style.css';
 import { parse } from 'pgsql-ast-parser';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import type * as Monaco from 'monaco-editor';
+import { Code2, Workflow } from 'lucide-react';
 import { buildFlowFromAST, type AstLoc } from './buildFlowFromAST';
 import RecursiveEdge from './RecursiveEdge';
 import SqlNode from './SqlNode';
@@ -37,6 +38,7 @@ WHERE o.total > 100
 ORDER BY o.total DESC;`;
 
 const DEBOUNCE_MS = 300;
+const PANEL_CLOSE_MS = 400;
 
 function sanitizeInput(raw: string): string {
   return raw
@@ -65,8 +67,6 @@ function shortenError(msg: string): string {
   return firstLine.length > 120 ? firstLine.slice(0, 117) + '…' : firstLine;
 }
 
-const HIGHLIGHT_GLOW = '0 0 0 2px rgb(90, 189, 172), 0 0 16px 8px rgba(90, 189, 172, 0.67)';
-
 function findNodeAtOffset(nodes: Node[], offset: number): Node | null {
   let best: Node | null = null;
   let bestSize = Infinity;
@@ -90,8 +90,10 @@ function AppInner() {
   const [parseError, setParseError] = useState<string | null>(null);
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
+  const [isClosingPanel, setIsClosingPanel] = useState(false);
   const [mobileView, setMobileView] = useState<'editor' | 'diagram'>('editor');
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closePanelTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { fitView } = useReactFlow();
 
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -101,6 +103,14 @@ function AppInner() {
   const suppressCursorRef = useRef(false);
 
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+
+  useEffect(() => {
+    return () => {
+      if (closePanelTimeoutRef.current) {
+        clearTimeout(closePanelTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const highlightRange = useCallback((loc: AstLoc) => {
     const editor = editorRef.current;
@@ -252,6 +262,12 @@ function AppInner() {
   }, [highlightRange, clearHighlight]);
 
   const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
+    if (closePanelTimeoutRef.current) {
+      clearTimeout(closePanelTimeoutRef.current);
+      closePanelTimeoutRef.current = null;
+    }
+    setIsClosingPanel(false);
+
     const loc = node.data?.loc as AstLoc | undefined;
     setHighlightedNodeId(node.id);
     setSelectedNode((prev) => prev !== null ? node : null);
@@ -281,10 +297,22 @@ function AppInner() {
   }, [clearHighlight]);
 
   const handleClosePanel = useCallback(() => {
-    setSelectedNode(null);
-  }, []);
+    if (!selectedNode || isClosingPanel) return;
+    setIsClosingPanel(true);
+    closePanelTimeoutRef.current = setTimeout(() => {
+      setSelectedNode(null);
+      setIsClosingPanel(false);
+      closePanelTimeoutRef.current = null;
+    }, PANEL_CLOSE_MS);
+  }, [selectedNode, isClosingPanel]);
 
   const openDetails = useCallback((nodeId: string) => {
+    if (closePanelTimeoutRef.current) {
+      clearTimeout(closePanelTimeoutRef.current);
+      closePanelTimeoutRef.current = null;
+    }
+    setIsClosingPanel(false);
+
     const node = nodesRef.current.find((n) => n.id === nodeId);
     if (!node) return;
     setSelectedNode(node);
@@ -326,7 +354,12 @@ function AppInner() {
     if (!highlightedNodeId) return nodes;
     return nodes.map((n) =>
       n.id === highlightedNodeId
-        ? { ...n, style: { ...n.style, boxShadow: HIGHLIGHT_GLOW } }
+        ? { ...n, style: {
+          ...n.style,
+          outline: '2px solid rgb(90, 189, 172)',
+          outlineOffset: 2,
+          boxShadow: '0 0 16px 6px rgba(90, 189, 172, 0.3)'
+        } }
         : n,
     );
   }, [nodes, highlightedNodeId]);
@@ -335,14 +368,14 @@ function AppInner() {
     <div className={styles.container} data-mobile-view={mobileView}>
       {/* ─── Left: SQL Editor ─── */}
       <aside className={styles.editorPane}>
-        <div className={`${styles.paneHeader}`}>
+        <header className={`${styles.paneHeader}`}>
           <h1 className={styles.appName}>
             <span className={styles.appNameA}>actually</span>
             <span className={styles.appNameB}>explain</span>
             {/* <span className={styles.appNameC}>.me</span> */}
           </h1>
           <h2 className={styles.sqlFlavor}>PostgreSQL</h2>
-        </div>
+        </header>
         {parseError && (
           <div className={styles.errorBar}>
             <p>{shortenError(parseError)}</p>
@@ -413,7 +446,7 @@ function AppInner() {
           className={styles.detailsOverlay}
           style={{ '--node-color': selectedNode.style?.['--node-color' as keyof typeof selectedNode.style] ?? '#58a6ff' } as React.CSSProperties}
         >
-          <NodeDetailsPanel node={selectedNode} onClose={handleClosePanel} />
+          <NodeDetailsPanel node={selectedNode} onClose={handleClosePanel} isClosing={isClosingPanel} />
         </div>
       )}
 
@@ -423,13 +456,15 @@ function AppInner() {
           className={`${styles.mobileNavBtn} ${mobileView === 'editor' ? styles.mobileNavBtnActive : ''}`}
           onClick={() => setMobileView('editor')}
         >
-          <span>⟫</span> Code
+          <Code2 size={20} aria-hidden="true" />
+          <span>Code</span>
         </button>
         <button
           className={`${styles.mobileNavBtn} ${mobileView === 'diagram' ? styles.mobileNavBtnActive : ''}`}
           onClick={() => setMobileView('diagram')}
         >
-          <span>◈</span> Diagram
+          <Workflow size={20} aria-hidden="true" />
+          <span>Diagram</span>
         </button>
       </nav>
     </div>

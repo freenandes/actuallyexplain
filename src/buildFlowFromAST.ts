@@ -5,7 +5,7 @@ import dagre from 'dagre';
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type AST = Record<string, any>;
 
-const NODE_WIDTH = 280;
+const NODE_WIDTH = 240;
 const NODE_HEIGHT = 80;
 const MAX_LABEL = 80;
 

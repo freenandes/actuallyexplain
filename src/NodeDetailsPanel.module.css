@@ -1,27 +1,31 @@
 .panel {
-  position: absolute;
-  top: 0;
-  right: 0;
-  width: 340px;
-  height: 100%;
-  z-index: 10;
-  overflow-y: auto;
-
-  background: rgba(15, 15, 15, 0.8);
-  border-left: 1px solid #333;
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-
   display: flex;
   flex-direction: column;
   gap: 0;
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 22.5rem;
+  height: 100%;
+  z-index: 10;
+  background: var(--bg);
+  border-left: 1px solid var(--ui-3);
+  overflow-y: auto;
+  animation: slideIn 0.3s ease-out;
+}
 
-  animation: slideIn 0.2s ease-out;
+.panelClosing {
+  animation: slideOut 0.15s ease-in forwards;
 }
 
 @keyframes slideIn {
   from { transform: translateX(100%); opacity: 0; }
   to   { transform: translateX(0);    opacity: 1; }
+}
+
+@keyframes slideOut {
+  from { transform: translateX(0);    opacity: 1; }
+  to   { transform: translateX(100%); opacity: 0; }
 }
 
 /* ── Header ── */
@@ -30,124 +34,110 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 0.25rem 0.25rem 0.25rem 1rem;
 }
 
 .headerTitle {
+  font-size: 1.125rem;
+  font-weight: 525;
+  line-height: 1.125;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 0.5rem;
   min-width: 0;
 }
 
-.operationName {
-  font-size: 15px;
-  font-weight: 600;
-  color: #e6edf3;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .closeBtn {
-  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
+  flex-shrink: 0;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--br-md);
   border: none;
-  background: rgba(255, 255, 255, 0.06);
-  color: #8b949e;
+  color: var(--tx-2);
+  background: none;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }
 
 .closeBtn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #e6edf3;
+  color: var(--tx);
+  background: var(--bg-2);
 }
 
 /* ── Raw SQL block ── */
 
 .rawSql {
-  margin: 0 20px;
-  padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 6px;
   font-family: 'Martian Mono', monospace;
-  font-size: 11px;
-  line-height: 1.5;
-  color: #8b949e;
+  font-size: 0.75rem;
+  font-weight: 375;
+  padding: 0.75rem 1rem;
+  color: var(--tx-2);
+  background-color: var(--bg-2);
+  border-top: 1px solid var(--ui-3);
   white-space: pre-wrap;
   word-break: break-word;
-  margin-top: 16px;
 }
 
 /* ── Sections ── */
 
 .section {
-  padding: 16px 20px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.section:first-of-type {
-  margin-top: 4px;
+  padding: 1rem 1rem 1.25rem;
+  border-top: 1px solid var(--ui-3);
 }
 
 .sectionTitle {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #8b949e;
-  margin-bottom: 8px;
+  font-size: 0.875rem;
+  font-weight: 425;
+  text-transform: lowercase;
+  color: var(--tx-2);
+  margin-bottom: 1em;
 }
 
 .sectionBody {
-  font-size: 13px;
-  line-height: 1.6;
-  color: #c9d1d9;
+  font-size: 1rem;
+  font-weight: 375;
+  line-height: 1.375;
+  color: var(--tx);
+  margin-bottom: 1em;
 }
 
 /* ── Inline code (contextual variables) ── */
 
 .inlineCode {
-  display: inline;
-  padding: 1px 5px;
-  background: rgba(88, 166, 255, 0.1);
-  border: 1px solid rgba(88, 166, 255, 0.2);
-  border-radius: 4px;
   font-family: 'Martian Mono', monospace;
-  font-size: 11.5px;
-  color: #79c0ff;
+  font-size: 0.8125rem;
+  font-weight: 425;
+  line-height: 1.5;
+  display: inline;
+  padding: 0.125em 0.25em;
+  color: var(--tx-2);
+  background-color: color-mix(in srgb, var(--tx-2) 20%, transparent);
+  border-radius: var(--br-sm);
   word-break: break-word;
 }
 
 /* ── Docs link ── */
 
 .docsLink {
+  font-size: 0.875rem;
+  line-height: 1.125;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  margin-top: 10px;
-  font-size: 11px;
-  color: #58a6ff;
-  text-decoration: none;
+  gap: 0.375em;
+  color: var(--cy);
   transition: color 0.15s;
 }
 
 .docsLink:hover {
-  color: #79c0ff;
-  text-decoration: underline;
+  color: var(--cy-2);
 }
 
 /* ─── Mobile: full-screen panel ─── */
 
-@media (max-width: 640px) {
+@media (max-width: 720px) {
   .panel {
     width: 100%;
     height: 100%;
@@ -155,9 +145,18 @@
     animation: mobileSlideUp 0.25s ease-out;
   }
 
+  .panelClosing {
+    animation: mobileSlideDown 0.5s ease-in forwards;
+  }
+
   @keyframes mobileSlideUp {
     from { transform: translateY(40px); opacity: 0; }
     to   { transform: translateY(0);    opacity: 1; }
+  }
+
+  @keyframes mobileSlideDown {
+    from { transform: translateY(0);    opacity: 1; }
+    to   { transform: translateY(40px); opacity: 0; }
   }
 
   .closeBtn {

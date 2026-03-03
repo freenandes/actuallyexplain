@@ -43,10 +43,11 @@
   color: var(--tx-2);
   background: transparent;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: color 0.15s, background 0.15s;
 }
 
 .infoBtn:hover {
+  color: var(--tx);
   background: var(--ui);
 }
 

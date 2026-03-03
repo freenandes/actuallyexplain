@@ -11,7 +11,6 @@ import {
   Settings,
   Columns3,
   Crosshair,
-  BookOpen,
   Braces,
   type LucideIcon,
   SquaresUnite,
@@ -23,11 +22,12 @@ import {
   Cog,
   Replace,
   SquareDashedMousePointer,
+  Info,
 } from 'lucide-react';
 import { NodeActionsContext } from './NodeActionsContext';
 import styles from './SqlNode.module.css';
 
-const kindIcons: Record<string, LucideIcon> = {
+export const kindIcons: Record<string, LucideIcon> = {
   table: Database,
   join: Link,
   where: Filter,
@@ -52,7 +52,7 @@ const kindIcons: Record<string, LucideIcon> = {
 
 export default function SqlNode({ id, data }: NodeProps) {
   const kind = (data.kind as string) ?? 'operation';
-  const Icon = kindIcons[kind] ?? Settings;
+  const Icon = kindIcons[kind] ?? kindIcons.operation ?? Settings;
   const { openDetails } = useContext(NodeActionsContext);
 
   return (
@@ -67,7 +67,7 @@ export default function SqlNode({ id, data }: NodeProps) {
             title="Open details panel"
             onClick={(e) => { e.stopPropagation(); openDetails(id); }}
           >
-            <BookOpen size={16} />
+            <Info size={16} />
           </button>
         </div>
         <p className={styles.body}>{data.plainEnglish as string}</p>
