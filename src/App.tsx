@@ -17,7 +17,8 @@ import '@xyflow/react/dist/style.css';
 import { parse } from 'pgsql-ast-parser';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import type * as Monaco from 'monaco-editor';
-import { Code2, Workflow } from 'lucide-react';
+import { CircleQuestionMark, Code2, Workflow } from 'lucide-react';
+import AboutModal from './AboutModal';
 import { buildFlowFromAST, type AstLoc } from './buildFlowFromAST';
 import RecursiveEdge from './RecursiveEdge';
 import SqlNode from './SqlNode';
@@ -92,8 +93,11 @@ function AppInner() {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [isClosingPanel, setIsClosingPanel] = useState(false);
   const [mobileView, setMobileView] = useState<'editor' | 'diagram'>('editor');
+  const [showAbout, setShowAbout] = useState(false);
+  const [isClosingAbout, setIsClosingAbout] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closePanelTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeAboutTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { fitView } = useReactFlow();
 
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
@@ -296,6 +300,16 @@ function AppInner() {
     clearHighlight();
   }, [clearHighlight]);
 
+  const handleCloseAbout = useCallback(() => {
+    if (!showAbout || isClosingAbout) return;
+    setIsClosingAbout(true);
+    closeAboutTimeoutRef.current = setTimeout(() => {
+      setShowAbout(false);
+      setIsClosingAbout(false);
+      closeAboutTimeoutRef.current = null;
+    }, PANEL_CLOSE_MS);
+  }, [showAbout, isClosingAbout]);
+
   const handleClosePanel = useCallback(() => {
     if (!selectedNode || isClosingPanel) return;
     setIsClosingPanel(true);
@@ -375,6 +389,9 @@ function AppInner() {
             {/* <span className={styles.appNameC}>.me</span> */}
           </h1>
           <h2 className={styles.sqlFlavor}>PostgreSQL</h2>
+          <button className={styles.aboutBtn} onClick={() => setShowAbout(true)} aria-label="About">
+            <CircleQuestionMark size={16} />
+          </button>
         </header>
         {parseError && (
           <div className={styles.errorBar}>
@@ -467,6 +484,8 @@ function AppInner() {
           <span>Diagram</span>
         </button>
       </nav>
+
+      {showAbout && <AboutModal onClose={handleCloseAbout} isClosing={isClosingAbout} />}
     </div>
   );
 }

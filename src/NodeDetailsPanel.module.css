@@ -34,7 +34,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.25rem 0.25rem 0.25rem 1rem;
+  padding: 0.5rem 0.5rem 0.5rem 1rem;
 }
 
 .headerTitle {
@@ -123,7 +123,7 @@
 
 .docsLink {
   font-size: 0.875rem;
-  line-height: 1.125;
+  line-height: 1.375;
   display: inline-flex;
   align-items: center;
   gap: 0.375em;
@@ -138,15 +138,16 @@
 /* ─── Mobile: full-screen panel ─── */
 
 @media (max-width: 720px) {
+
   .panel {
     width: 100%;
     height: 100%;
     border-left: none;
-    animation: mobileSlideUp 0.25s ease-out;
+    animation: mobileSlideUp 0.3s ease-out;
   }
 
   .panelClosing {
-    animation: mobileSlideDown 0.5s ease-in forwards;
+    animation: mobileSlideDown 0.15s ease-in forwards;
   }
 
   @keyframes mobileSlideUp {
@@ -157,11 +158,5 @@
   @keyframes mobileSlideDown {
     from { transform: translateY(0);    opacity: 1; }
     to   { transform: translateY(40px); opacity: 0; }
-  }
-
-  .closeBtn {
-    width: 36px;
-    height: 36px;
-    border-radius: 8px;
   }
 }
