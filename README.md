@@ -51,6 +51,7 @@ All source lives in `src/`. Key files:
 - Export functionality
 - BYOK AI chat for "further explain"
 - Support other SQL flavors
+- Digest execution plans and provide performance stats
 
 ### Looking for something else?
 
