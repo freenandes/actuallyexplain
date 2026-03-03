@@ -6,8 +6,7 @@ import dagre from 'dagre';
 type AST = Record<string, any>;
 
 const NODE_WIDTH = 240;
-const NODE_HEIGHT = 80;
-const MAX_LABEL = 80;
+const MIN_NODE_HEIGHT = 80;
 
 const nodeColors: Record<string, string> = {
   table: '#879A39',
@@ -35,8 +34,14 @@ const nodeColors: Record<string, string> = {
 };
 
 
-function truncate(str: string, max = MAX_LABEL): string {
-  return str.length > max ? str.slice(0, max - 1) + '…' : str;
+function estimateNodeHeight(_label: string, plainEnglish: string): number {
+  const BODY_CPL = 28;
+  const HEADER_H = 40;
+
+  const bodyLines = Math.max(1, Math.ceil(plainEnglish.length / BODY_CPL));
+  const bodyH = bodyLines * 16 + 12;
+
+  return Math.max(MIN_NODE_HEIGHT, HEADER_H + bodyH + 4);
 }
 
 // ── Expression → readable string ──
@@ -162,29 +167,29 @@ function generatePlainEnglish(kind: string, label: string): string {
     }
     case 'where': {
       const cond = label.replace(/^WHERE\s+/i, '');
-      return `Keeps only rows where ${truncate(cond, 60)}.`;
+      return `Keeps only rows where ${cond}.`;
     }
     case 'having': {
       const cond = label.replace(/^HAVING\s+/i, '');
-      return `Keeps only groups where ${truncate(cond, 60)}.`;
+      return `Keeps only groups where ${cond}.`;
     }
     case 'join': {
       if (label.includes('CROSS')) return 'Combines every row with every other row.';
       const onMatch = label.match(/ON\s+(.+)/i);
       const joinType = label.match(/^(\w+\s+JOIN)/i)?.[1] ?? 'JOIN';
       return onMatch
-        ? `${joinType}: matches where ${truncate(onMatch[1], 50)}.`
+        ? `${joinType}: matches where ${onMatch[1]}.`
         : 'Joins with another data source.';
     }
     case 'select':
       return 'Selects and formats the output columns.';
     case 'groupby': {
       const cols = label.replace(/^GROUP BY\s+/i, '');
-      return `Groups rows together by ${truncate(cols, 50)}.`;
+      return `Groups rows together by ${cols}.`;
     }
     case 'orderby': {
       const cols = label.replace(/^ORDER BY\s+/i, '');
-      return `Sorts the results by ${truncate(cols, 50)}.`;
+      return `Sorts the results by ${cols}.`;
     }
     case 'limit': {
       const val = label.replace(/^LIMIT\s+/i, '');
@@ -214,11 +219,11 @@ function generatePlainEnglish(kind: string, label: string): string {
       return 'Provides literal data values as input.';
     case 'set': {
       const assignments = label.replace(/^SET\s+/i, '');
-      return `Sets ${truncate(assignments, 60)}.`;
+      return `Sets ${assignments}.`;
     }
     case 'returning': {
       const cols = label.replace(/^RETURNING\s+/i, '');
-      return `Returns ${truncate(cols, 50)} from modified rows.`;
+      return `Returns ${cols} from modified rows.`;
     }
     case 'create': {
       const name = label.replace(/^CREATE TABLE\s+/i, '');
@@ -274,7 +279,7 @@ class GraphBuilder {
 
   addNode(label: string, kind: string, loc?: AstLoc): string {
     const id = `n-${this.idCounter++}`;
-    this.nodes.push({ id, label: truncate(label), kind, loc });
+    this.nodes.push({ id, label, kind, loc });
     return id;
   }
 
@@ -310,8 +315,12 @@ class GraphBuilder {
     g.setGraph({ rankdir: 'TB', nodesep: 40, ranksep: 120, marginx: 40, marginy: 40 });
     g.setDefaultEdgeLabel(() => ({}));
 
+    const nodeExtras = new Map<string, { plainEnglish: string; height: number }>();
     for (const n of this.nodes) {
-      g.setNode(n.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
+      const plainEnglish = generatePlainEnglish(n.kind, n.label);
+      const height = estimateNodeHeight(n.label, plainEnglish);
+      nodeExtras.set(n.id, { plainEnglish, height });
+      g.setNode(n.id, { width: NODE_WIDTH, height });
     }
     for (const e of this.edges) {
       if (!e.isRecursive) {
@@ -321,7 +330,6 @@ class GraphBuilder {
 
     dagre.layout(g);
 
-    // Right bound of the graph — recursive edges route past this
     const maxRightX = Math.max(
       ...this.nodes.map((n) => g.node(n.id).x + NODE_WIDTH / 2),
     );
@@ -329,15 +337,16 @@ class GraphBuilder {
     const flowNodes: Node[] = this.nodes.map((n) => {
       const pos = g.node(n.id);
       const color = nodeColors[n.kind] ?? '#58a6ff';
+      const extra = nodeExtras.get(n.id)!;
       return {
         id: n.id,
         type: 'sql',
-        position: { x: pos.x - NODE_WIDTH / 2, y: pos.y - NODE_HEIGHT / 2 },
+        position: { x: pos.x - NODE_WIDTH / 2, y: pos.y - extra.height / 2 },
         data: {
           label: n.label,
           loc: n.loc,
           kind: n.kind,
-          plainEnglish: generatePlainEnglish(n.kind, n.label),
+          plainEnglish: extra.plainEnglish,
         },
         style: {
           '--node-color': color,

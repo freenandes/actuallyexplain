@@ -10,7 +10,7 @@
 .editorPane {
   display: flex;
   flex-direction: column;
-  width: 25%;
+  width: 33%;
   min-width: 22.5rem;
   background-color: var(--bg);
   border-right: 1px solid var(--ui-3);
