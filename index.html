@@ -13,6 +13,65 @@
     <title>actuallyEXPLAIN -- Visual SQL Decompiler</title>
   </head>
   <body>
+    <div id="app-loader">
+      <span class="loader-brand">
+        <span>actually</span><span class="loader-brand-b">EXPLAIN</span>
+      </span>
+      <div class="loader-track">
+        <div class="loader-bar"></div>
+      </div>
+    </div>
+    <style>
+      #app-loader {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: var(--bg);
+        transition: opacity 0.5s ease;
+      }
+      #app-loader.hiding {
+        opacity: 0;
+        pointer-events: none;
+      }
+      .loader-brand {
+        font-family: 'Inclusive Sans', system-ui, sans-serif;
+        font-size: 1.125rem;
+        font-weight: 575;
+        color: var(--tx);
+        letter-spacing: 0.01em;
+        opacity: 0;
+        animation: loaderFadeIn 0.3s ease 0.6s forwards;
+      }
+      .loader-brand-b {
+        text-transform: uppercase;
+      }
+      .loader-track {
+        width: 6rem;
+        height: 2px;
+        margin-top: 1.25rem;
+        background: var(--ui-3);
+        overflow: hidden;
+        opacity: 0;
+        animation: loaderFadeIn 0.3s ease 0.6s forwards;
+      }
+      .loader-bar {
+        width: 40%;
+        height: 100%;
+        background: var(--cy);
+        animation: loaderSlide 1s ease-in-out 0.6s infinite alternate;
+      }
+      @keyframes loaderSlide {
+        from { transform: translateX(0); }
+        to { transform: translateX(150%); }
+      }
+      @keyframes loaderFadeIn {
+        to { opacity: 1; }
+      }
+    </style>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

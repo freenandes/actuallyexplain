@@ -56,6 +56,7 @@ body,
   height: 100%;
   width: 100%;
   overflow: hidden;
+  background-color: var(--bg);
 }
 
 /* Monaco Editor: highlighted SQL range when linked to a React Flow node */
@@ -83,7 +84,7 @@ body,
   --xy-node-border: 2px solid var(--ui-3);
   --xy-node-border-radius: var(--br-lg);
   --xy-node-boxshadow-hover: none;
-  --xy-node-boxshadow-selected: 0 0 16px 6px rgba(90, 189, 172, 0.3);
+  --xy-node-boxshadow-selected: 0 0 16px 6px rgba(90, 189, 172, 0.7);
 }
 
 .react-flow__node-sql {

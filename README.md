@@ -1,6 +1,6 @@
 # actuallyEXPLAIN
 
-[actuallyEXPLAIN](https://actuallyexplain.vercel.app/) is visualizer that helps you understand complex PostgreSQL queries in a diagram and dictionarized form.
+[actuallyEXPLAIN](https://actuallyexplain.vercel.app/) is a visualizer that helps you understand complex PostgreSQL queries in a diagram and dictionarized form.
 
 Paste your code, and check the logic. No database connection required.
 
