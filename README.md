@@ -23,7 +23,8 @@ Open source under the MIT license. You're welcome to view the code, suggest stuf
 - **Monaco Editor** — the same editor that powers VS Code, used for SQL input
 - **React Flow** — renders the node/edge diagram; layout is computed with **dagre**
 - **pgsql-ast-parser** — parses raw SQL into an AST (no database needed)
-- **Lucide** icons, CSS Modules for styling (no UI framework)
+- **Lucide** icons
+- **CSS Modules** for styling (no UI framework)
 
 ### Codebase
 
