@@ -29,6 +29,7 @@ import styles from './SqlNode.module.css';
 
 export const kindIcons: Record<string, LucideIcon> = {
   table: Database,
+  insert_target: Database,
   join: Link,
   where: Filter,
   having: Filter,

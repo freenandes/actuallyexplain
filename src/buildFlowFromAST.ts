@@ -10,6 +10,7 @@ const MIN_NODE_HEIGHT = 80;
 
 const nodeColors: Record<string, string> = {
   table: '#879A39',
+  insert_target: '#879A39',
   join: '#3AA99F',
   where: '#D0A215',
   select: '#4385BE',
@@ -165,6 +166,8 @@ function generatePlainEnglish(kind: string, label: string): string {
       if (label.startsWith('subquery')) return 'Loads data from an inline subquery.';
       return `Loads base data from the ${label} table.`;
     }
+    case 'insert_target':
+      return 'Target table receiving the inserted rows.';
     case 'where': {
       const cond = label.replace(/^WHERE\s+/i, '');
       return `Keeps only rows where ${cond}.`;
@@ -174,6 +177,7 @@ function generatePlainEnglish(kind: string, label: string): string {
       return `Keeps only groups where ${cond}.`;
     }
     case 'join': {
+      if (label.includes('NATURAL')) return 'NATURAL JOIN: Implicitly joins tables using all columns with matching names.';
       if (label.includes('CROSS')) return 'Combines every row with every other row.';
       const onMatch = label.match(/ON\s+(.+)/i);
       const joinType = label.match(/^(\w+\s+JOIN)/i)?.[1] ?? 'JOIN';
@@ -198,7 +202,7 @@ function generatePlainEnglish(kind: string, label: string): string {
     case 'cte': {
       const name = label.replace(/^(CTE|RECURSIVE):\s*/i, '');
       return label.startsWith('RECURSIVE')
-        ? `Creates a recursive result set named ${name}.`
+        ? 'Creates a temporary, looping result set. It runs the base query once, then continuously feeds those results back into itself to find deeper matches until no new rows are found.'
         : `Creates a temporary result set named ${name}.`;
     }
     case 'union':
@@ -382,7 +386,7 @@ class GraphBuilder {
           },
           style: {
             stroke: '#3AA99F',
-            strokeDasharray: '3 3',
+            strokeDasharray: '6 6',
             strokeWidth: 2,
           },
         };
@@ -493,15 +497,16 @@ function buildSelect(
   // FROM sources — each table/subquery is a root node
   if (ast.from) {
     for (const src of ast.from) {
-      if (src.type === 'table') {
-        const name = tblName(src);
-        if (selfRef && name === selfRef.selfName) {
-          continue;
-        }
+      const isSelfRef = src.type === 'table' && selfRef && tblName(src) === selfRef.selfName;
+
+      if (isSelfRef && !src.join) {
+        continue;
       }
 
       let srcId: string;
-      if (src.type === 'table') {
+      if (isSelfRef) {
+        srcId = '';
+      } else if (src.type === 'table') {
         const name = tblName(src);
         const alias = tblAlias(src);
         const cteRef = cteMap.get(name);
@@ -518,6 +523,12 @@ function buildSelect(
         const wrapId = g.addNode(`subquery${alias}`, 'table', astLoc(src));
         g.addEdge(subId, wrapId, 'table');
         srcId = wrapId;
+      } else if (src.type === 'statement' && src.statement) {
+        const subId = dispatchBuild(src.statement, g, cteMap);
+        const alias = src.alias ? ` (${src.alias})` : '';
+        const wrapId = g.addNode(`subquery${alias}`, 'table', astLoc(src));
+        g.addEdge(subId, wrapId, 'table');
+        srcId = wrapId;
       } else {
         const nameLoc = astLoc(src.name) ?? astLoc(src);
         const tblLoc = g.alLoc(nameLoc, src.name?.alias);
@@ -525,8 +536,9 @@ function buildSelect(
       }
 
       if (src.join) {
+        const isNatural = src.join.natural || /^NATURAL\b/i.test(src.join.type ?? '');
         const joinType = src.join.type ?? 'JOIN';
-        const onClause = src.join.on ? ` ON ${exprToString(src.join.on)}` : '';
+        const onClause = !isNatural && src.join.on ? ` ON ${exprToString(src.join.on)}` : '';
         const joinId = g.addNode(`${joinType}${onClause}`, 'join', astLoc(src));
 
         // Left side: the accumulated result so far
@@ -537,8 +549,14 @@ function buildSelect(
           sourceIds.push(joinId);
         }
 
-        // Right side: this table
-        g.addEdge(srcId, joinId, 'join');
+        // Right side: wire the table into the join (skip for self-ref — the recursive edge handles it)
+        if (!isSelfRef) {
+          g.addEdge(srcId, joinId, 'join');
+        }
+
+        if (isSelfRef && selfRef) {
+          selfRef.entryNodeId = joinId;
+        }
 
         // CTE refs in ON conditions
         if (src.join.on) linkCteRefsToNode(src.join.on, cteMap, joinId, g);
@@ -700,7 +718,7 @@ function buildInsert(ast: AST, g: GraphBuilder, cteMap: Map<string, string>): st
   if (currentId) g.addEdge(currentId, insId, 'insert');
   currentId = insId;
 
-  const tblId = g.addNode(`${tblName(ast.into ?? ast)}`, 'table', astLoc(ast.into));
+  const tblId = g.addNode(`${tblName(ast.into ?? ast)}`, 'insert_target', astLoc(ast.into));
   g.addEdge(currentId, tblId, 'insert');
   currentId = tblId;
 
@@ -765,21 +783,68 @@ function buildCreateTable(ast: AST, g: GraphBuilder): string {
   return lastId;
 }
 
+function containsTableRef(node: any, name: string): boolean {
+  if (!node || typeof node !== 'object') return false;
+  if (node.type === 'table' && tblName(node) === name) return true;
+  for (const val of Object.values(node)) {
+    if (Array.isArray(val)) {
+      for (const item of val) {
+        if (containsTableRef(item, name)) return true;
+      }
+    } else if (val && typeof val === 'object') {
+      if (containsTableRef(val, name)) return true;
+    }
+  }
+  return false;
+}
+
 function buildWith(ast: AST, g: GraphBuilder): string {
   const cteMap = new Map<string, string>();
 
   if (ast.bind && Array.isArray(ast.bind)) {
     for (const cte of ast.bind) {
       const name = cte.alias?.name ?? '?';
-      const cteHeaderId = g.addNode(`CTE: ${name}`, 'cte', astLoc(cte));
+      const stmt = cte.statement;
+      const isUnion = stmt && (stmt.type === 'union' || stmt.type === 'union all');
+      const isRecursive = isUnion && containsTableRef(stmt, name);
 
-      if (cte.statement) {
-        // Pass accumulated cteMap so later CTEs can reference earlier ones
-        const innerOutputId = dispatchBuild(cte.statement, g, new Map(cteMap));
-        g.addEdge(innerOutputId, cteHeaderId, 'cte');
+      if (isRecursive) {
+        const cteHeaderId = g.addNode(`RECURSIVE: ${name}`, 'cte', astLoc(cte));
+
+        const unionId = g.addNode(stmt.type.toUpperCase(), 'union', astLoc(stmt));
+        g.addEdge(unionId, cteHeaderId, 'cte');
+
+        if (stmt.left) {
+          const leftId = dispatchBuild(stmt.left, g, new Map(cteMap));
+          g.addEdge(leftId, unionId, 'union');
+        }
+
+        if (stmt.right) {
+          const selfRef: RecursiveSelfRef = { selfName: name, entryNodeId: null };
+          let rightId: string;
+          if (stmt.right.type === 'select') {
+            rightId = buildSelect(stmt.right, g, new Map(cteMap), selfRef);
+          } else {
+            rightId = dispatchBuild(stmt.right, g, new Map(cteMap));
+          }
+          g.addEdge(rightId, unionId, 'union');
+
+          if (selfRef.entryNodeId) {
+            g.addEdge(cteHeaderId, selfRef.entryNodeId, 'cte', true);
+          }
+        }
+
+        cteMap.set(name, cteHeaderId);
+      } else {
+        const cteHeaderId = g.addNode(`CTE: ${name}`, 'cte', astLoc(cte));
+
+        if (stmt) {
+          const innerOutputId = dispatchBuild(stmt, g, new Map(cteMap));
+          g.addEdge(innerOutputId, cteHeaderId, 'cte');
+        }
+
+        cteMap.set(name, cteHeaderId);
       }
-
-      cteMap.set(name, cteHeaderId);
     }
   }
 
@@ -842,16 +907,49 @@ function buildUnion(ast: AST, g: GraphBuilder, cteMap: Map<string, string>): str
   const type = (ast.type ?? 'union').toUpperCase();
   const unionId = g.addNode(`${type}`, 'union', astLoc(ast));
 
+  let trailingOrderBy: any[] | undefined;
+  let trailingLimit: any | undefined;
+
   if (ast.left) {
     const leftId = dispatchBuild(ast.left, g, cteMap);
     g.addEdge(leftId, unionId, 'union');
   }
   if (ast.right) {
-    const rightId = dispatchBuild(ast.right, g, cteMap);
-    g.addEdge(rightId, unionId, 'union');
+    const right = ast.right;
+    if (right.type === 'select' && (right.orderBy || right.limit)) {
+      trailingOrderBy = right.orderBy;
+      trailingLimit = right.limit;
+      const stripped = { ...right, orderBy: undefined, limit: undefined };
+      const rightId = dispatchBuild(stripped, g, cteMap);
+      g.addEdge(rightId, unionId, 'union');
+    } else {
+      const rightId = dispatchBuild(right, g, cteMap);
+      g.addEdge(rightId, unionId, 'union');
+    }
   }
 
-  return unionId;
+  let currentId = unionId;
+
+  const orderBy = ast.orderBy ?? trailingOrderBy;
+  if (orderBy && orderBy.length > 0) {
+    const parts = orderBy
+      .map((o: any) => `${exprToString(o.by)} ${o.order ?? 'ASC'}`)
+      .join(', ');
+    const obId = g.addNode(`ORDER BY ${parts}`, 'orderby', g.kwLoc(spanLoc(orderBy), 'ORDER BY'));
+    g.addEdge(currentId, obId, 'orderby');
+    currentId = obId;
+  }
+
+  const limit = ast.limit ?? trailingLimit;
+  if (limit) {
+    const val = limit.limit ? exprToString(limit.limit) : '';
+    const off = limit.offset ? ` OFFSET ${exprToString(limit.offset)}` : '';
+    const limId = g.addNode(`LIMIT ${val}${off}`, 'limit', g.kwLoc(astLoc(limit), 'LIMIT'));
+    g.addEdge(currentId, limId, 'limit');
+    currentId = limId;
+  }
+
+  return currentId;
 }
 
 function buildGeneric(ast: AST, g: GraphBuilder): string {
@@ -905,10 +1003,10 @@ export function buildFlowFromAST(astInput: unknown, sql = ''): FlowGraph {
   const statements = Array.isArray(astInput) ? astInput : [astInput];
   if (statements.length === 0) return { nodes: [], edges: [] };
 
-  const ast = statements[0] as AST;
-  if (!ast || !ast.type) return { nodes: [], edges: [] };
-
   const g = new GraphBuilder(sql);
-  dispatchBuild(ast, g, new Map());
+  for (const ast of statements) {
+    if (!ast || typeof ast !== 'object' || !(ast as AST).type) continue;
+    dispatchBuild(ast as AST, g, new Map());
+  }
   return g.layout();
 }

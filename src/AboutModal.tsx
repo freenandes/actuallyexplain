@@ -28,7 +28,7 @@ export default function AboutModal({ onClose, isClosing = false }: Props) {
 
         <div className={styles.body}>
           <p>
-            actuallyEXPLAIN is visualizer that helps you understand complex PostgreSQL queries in a diagram and dictionarized form.
+            actuallyEXPLAIN is a visualizer that helps you understand complex PostgreSQL queries in a diagram and dictionarized form.
           </p>
           <p>Paste your code, and check the logic. No database connection required.</p>
           <p>

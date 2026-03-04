@@ -52,6 +52,7 @@ function sanitizeInput(raw: string): string {
     .replace(/\u2013/g, '-')              // en-dash → -
     .replace(/\r\n/g, '\n')              // normalize line endings
     .replace(/\r/g, '\n')
+    .replace(/\bRECURSIVE\b/gi, (m) => ' '.repeat(m.length)) // pgsql-ast-parser doesn't support WITH RECURSIVE
     .trim();
 }
 
@@ -94,6 +95,7 @@ function AppInner() {
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [isClosingPanel, setIsClosingPanel] = useState(false);
   const [mobileView, setMobileView] = useState<'editor' | 'diagram'>('editor');
+  const [appReady, setAppReady] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   const [isClosingAbout, setIsClosingAbout] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -165,9 +167,21 @@ function AppInner() {
       setEdges(graph.edges);
       setParseError(null);
     } catch (err) {
-      const message = extractErrorMessage(err);
-      console.warn('[SQL Parse Error]', message);
-      setParseError(message);
+      if (/\bWITH\b[\s\S]*?\b\w+\s*\([^)]+\)\s*\bAS\b/i.test(raw)) {
+        setParseError('Explicit CTE column lists (e.g., CTE_Name (col1, col2)) are not currently supported by our parser. Try aliasing your columns directly inside the SELECT statement instead!');
+      } else if (/\bNATURAL\s+JOIN\b/i.test(input)) {
+        setParseError('NATURAL JOIN is not currently supported by our parsing engine. Please use an explicit JOIN with an ON or USING clause.');
+      } else if (/^\s*(GRANT|REVOKE)\b/i.test(raw)) {
+        setParseError('Data Control Language (DCL) statements like GRANT and REVOKE are not currently supported for visualization. Try visualizing a SELECT, INSERT, or CREATE statement instead!');
+      } else if (/^\s*(CREATE|DROP)\s+(ROLE|USER)\b/i.test(raw)) {
+        setParseError('Administrative commands (like CREATE ROLE or CREATE USER) are not currently supported for visualization. Try visualizing a table definition or data query instead!');
+      } else if (/^\s*EXPLAIN\b/i.test(raw)) {
+        setParseError('actuallyEXPLAIN visualizes the logical intent of raw SQL, not physical database execution plans. Please remove the EXPLAIN keyword and any text output, and just paste your raw query!');
+      } else {
+        const message = extractErrorMessage(err);
+        console.warn('[SQL Parse Error]', message);
+        setParseError(shortenError(message));
+      }
     }
   }, [clearHighlight]);
 
@@ -263,6 +277,19 @@ function AppInner() {
           clearHighlight();
         }
       }
+    });
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          setAppReady(true);
+          const loader = document.getElementById('app-loader');
+          if (loader) {
+            loader.classList.add('hiding');
+            loader.addEventListener('transitionend', () => loader.remove());
+          }
+        }, 50);
+      });
     });
   }, [highlightRange, clearHighlight]);
 
@@ -373,30 +400,31 @@ function AppInner() {
           ...n.style,
           outline: '2px solid rgb(90, 189, 172)',
           outlineOffset: 2,
-          boxShadow: '0 0 16px 6px rgba(90, 189, 172, 0.3)'
+          boxShadow: '0 0 16px 6px rgba(90, 189, 172, 0.7)'
         } }
         : n,
     );
   }, [nodes, highlightedNodeId]);
 
   return (
-    <div className={styles.container} data-mobile-view={mobileView}>
+    <div className={styles.container} data-mobile-view={mobileView} data-ready={appReady}>
       {/* ─── Left: SQL Editor ─── */}
       <aside className={styles.editorPane}>
         <header className={`${styles.paneHeader}`}>
           <h1 className={styles.appName}>
             <span className={styles.appNameA}>actually</span>
             <span className={styles.appNameB}>explain</span>
-            {/* <span className={styles.appNameC}>.me</span> */}
           </h1>
-          <h2 className={styles.sqlFlavor}>PostgreSQL</h2>
-          <button className={styles.aboutBtn} onClick={() => setShowAbout(true)} aria-label="About">
-            <CircleQuestionMark size={16} />
-          </button>
+          <h2 className={styles.sqlFlavor}>PostgreSQL logical intent</h2>
+          <div className={styles.actions}>
+            <button className={styles.aboutBtn} onClick={() => setShowAbout(true)} aria-label="About">
+              <CircleQuestionMark size={18} />
+            </button>
+          </div>
         </header>
         {parseError && (
           <div className={styles.errorBar}>
-            <p>{shortenError(parseError)}</p>
+            <p>{parseError}</p>
           </div>
         )}
         <div className={styles.editorWrapper}>
