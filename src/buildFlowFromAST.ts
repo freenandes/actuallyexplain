@@ -47,6 +47,45 @@ function estimateNodeHeight(_label: string, plainEnglish: string): number {
 
 // ── Expression → readable string ──
 
+// The AST doesn't keep parentheses, so they're added back wherever an operand binds more
+// loosely than its operator. Levels follow pgsql-ast-parser's grammar (syntax/expr.ne).
+const ATOM = 16; // refs, literals, calls, casts…: never need parentheses
+const PARENTHESISED = 17; // lists and subqueries already render inside parentheses
+
+function precedence(e: any): number {
+  switch (e?.type) {
+    case 'binary':
+      switch (e.op) {
+        case 'OR': return 1;
+        case 'AND': return 2;
+        case '=': case '!=': return 4;
+        case '|': case '&': case '#': return 8;
+        case 'LIKE': case 'NOT LIKE': case 'ILIKE': case 'NOT ILIKE': return 9;
+        case 'IN': case 'NOT IN': return 10;
+        case '+': case '-': case '||': case '#-': case '&&': return 11;
+        case '*': case '/': case '%': return 12;
+        case '^': return 13;
+        case 'AT TIME ZONE': return 15;
+        default: return 6; // <, >, <=, >=, @>, <@, ~, @@, …
+      }
+    case 'unary':
+      return e.op === 'NOT' ? 3 : /^IS /.test(e.op) ? 5 : 14; // 5: IS NULL, IS TRUE, …; 14: prefix + and -
+    case 'ternary':
+      return 7; // [NOT] BETWEEN
+    case 'list':
+    case 'select':
+      return PARENTHESISED;
+    default:
+      return ATOM;
+  }
+}
+
+/** Renders an operand, in parentheses if it binds more loosely than `min`. */
+function operandToString(e: any, min: number, depth: number): string {
+  const s = exprToString(e, depth + 1);
+  return precedence(e) < min ? `(${s})` : s;
+}
+
 function exprToString(e: any, depth = 0): string {
   if (depth > 5) return '…';
   if (e == null) return '';
@@ -59,12 +98,17 @@ function exprToString(e: any, depth = 0): string {
       const tbl = e.table?.name ? `${e.table.name}.` : '';
       return `${tbl}${e.name}`;
     }
-    case 'binary':
-      return `${exprToString(e.left, depth + 1)} ${e.op} ${exprToString(e.right, depth + 1)}`;
+    case 'binary': {
+      const p = precedence(e);
+      // Every level is left-associative, so a right operand at the same level needs parentheses.
+      // IN's operand always has them, even around a single value: status IN ('active').
+      const rightMin = e.op === 'IN' || e.op === 'NOT IN' ? PARENTHESISED : p + 1;
+      return `${operandToString(e.left, p, depth)} ${e.op} ${operandToString(e.right, rightMin, depth)}`;
+    }
     case 'unary': {
       // pgsql-ast-parser's IS NULL / IS NOT NULL / IS [NOT] TRUE / IS [NOT] FALSE are postfix;
       // NOT, - and + are prefix.
-      const operand = exprToString(e.operand, depth + 1);
+      const operand = operandToString(e.operand, precedence(e), depth);
       return /^IS /.test(e.op) ? `${operand} ${e.op}` : `${e.op} ${operand}`;
     }
     case 'integer':
@@ -96,8 +140,10 @@ function exprToString(e: any, depth = 0): string {
     }
     case 'case':
       return 'CASE…END';
-    case 'ternary':
-      return `${exprToString(e.value, depth + 1)} ${e.op} ${exprToString(e.lo, depth + 1)} AND ${exprToString(e.hi, depth + 1)}`;
+    case 'ternary': {
+      const p = precedence(e);
+      return `${operandToString(e.value, p, depth)} ${e.op} ${operandToString(e.lo, p, depth)} AND ${operandToString(e.hi, p + 1, depth)}`;
+    }
     case 'select': {
       const subCols = (e.columns ?? [])
         .map((c: any) => exprToString(c.expr, depth + 1))
