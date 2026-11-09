@@ -61,8 +61,12 @@ function exprToString(e: any, depth = 0): string {
     }
     case 'binary':
       return `${exprToString(e.left, depth + 1)} ${e.op} ${exprToString(e.right, depth + 1)}`;
-    case 'unary':
-      return `${e.op} ${exprToString(e.operand, depth + 1)}`;
+    case 'unary': {
+      // pgsql-ast-parser's IS NULL / IS NOT NULL / IS [NOT] TRUE / IS [NOT] FALSE are postfix;
+      // NOT, - and + are prefix.
+      const operand = exprToString(e.operand, depth + 1);
+      return /^IS /.test(e.op) ? `${operand} ${e.op}` : `${e.op} ${operand}`;
+    }
     case 'integer':
     case 'numeric':
       return String(e.value);
