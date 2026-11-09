@@ -7,6 +7,8 @@ type AST = Record<string, any>;
 
 const NODE_WIDTH = 240;
 const MIN_NODE_HEIGHT = 80;
+const NODE_SEP = 40; // horizontal gap between nodes in a rank
+const RANK_SEP = 120; // vertical gap between ranks
 
 const nodeColors: Record<string, string> = {
   table: '#879A39',
@@ -401,7 +403,7 @@ class GraphBuilder {
     if (this.nodes.length === 0) return { nodes: [], edges: [] };
 
     const g = new dagre.graphlib.Graph();
-    g.setGraph({ rankdir: 'TB', nodesep: 40, ranksep: 120, marginx: 40, marginy: 40 });
+    g.setGraph({ rankdir: 'TB', nodesep: NODE_SEP, ranksep: RANK_SEP, marginx: 40, marginy: 40 });
     g.setDefaultEdgeLabel(() => ({}));
 
     const nodeExtras = new Map<string, { plainEnglish: string; height: number }>();
@@ -422,6 +424,16 @@ class GraphBuilder {
     const maxRightX = Math.max(
       ...this.nodes.map((n) => g.node(n.id).x + NODE_WIDTH / 2),
     );
+
+    // Top and bottom of a node's rank. dagre centres every node of a rank on the same y and leaves
+    // RANK_SEP between ranks, so recursive loops can run through those gaps without crossing nodes.
+    const rankEdges = (id: string) => {
+      const { y } = g.node(id);
+      const half = Math.max(...this.nodes
+        .filter((n) => Math.abs(g.node(n.id).y - y) < 1)
+        .map((n) => nodeExtras.get(n.id)!.height / 2));
+      return { top: y - half, bottom: y + half };
+    };
 
     const flowNodes: Node[] = this.nodes.map((n) => {
       const pos = g.node(n.id);
@@ -450,11 +462,21 @@ class GraphBuilder {
       height: 16,
     };
 
+    let loopCount = 0;
     const flowEdges: Edge[] = this.edges.map((e, i) => {
       const color = nodeColors[e.kind] ?? '#4385BE';
       if (e.isRecursive) {
         const srcPos = g.node(e.source);
         const tgtPos = g.node(e.target);
+        // Out of the CTE's right side, up through the gap above its rank, around the right of the
+        // graph, back in through the gap below the target's rank, and into the target's right side.
+        const fromX = srcPos.x + NODE_WIDTH / 2;
+        const toX = tgtPos.x + NODE_WIDTH / 2;
+        const side = NODE_SEP / 2; // between a node and its right-hand neighbour
+        const lane = loopCount++; // each loop gets its own lane, nesting outside the previous ones
+        const exitY = rankEdges(e.source).top - RANK_SEP / 2 + 12 * lane;
+        const entryY = rankEdges(e.target).bottom + RANK_SEP / 2 - 12 * lane;
+        const loopX = maxRightX + 80 + 24 * lane;
         return {
           id: `e-${i}`,
           source: e.source,
@@ -463,11 +485,16 @@ class GraphBuilder {
           animated: true,
           markerEnd: { ...arrow, color: '#3AA99F' },
           data: {
-            fromX: srcPos.x + NODE_WIDTH / 2,
-            fromY: srcPos.y,
-            toX: tgtPos.x + NODE_WIDTH / 2,
-            toY: tgtPos.y,
-            loopX: maxRightX + 80,
+            points: [
+              { x: fromX, y: srcPos.y },
+              { x: fromX + side, y: srcPos.y },
+              { x: fromX + side, y: exitY },
+              { x: loopX, y: exitY },
+              { x: loopX, y: entryY },
+              { x: toX + side, y: entryY },
+              { x: toX + side, y: tgtPos.y },
+              { x: toX, y: tgtPos.y },
+            ],
           },
           style: {
             stroke: '#3AA99F',
