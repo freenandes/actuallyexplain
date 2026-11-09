@@ -5,6 +5,7 @@ import {
   BackgroundVariant,
   Controls,
   useReactFlow,
+  useStoreApi,
   ReactFlowProvider,
   type Node,
   type Edge,
@@ -42,18 +43,31 @@ ORDER BY o.total DESC;`;
 const DEBOUNCE_MS = 300;
 const PANEL_CLOSE_MS = 400;
 
-function sanitizeInput(raw: string): string {
-  return raw
-    .replace(/\uFEFF/g, '')              // BOM
-    .replace(/[\u200B-\u200D\u2060]/g, '') // zero-width chars
-    .replace(/[\u2018\u2019]/g, "'")      // smart single quotes → '
-    .replace(/[\u201C\u201D]/g, '"')      // smart double quotes → "
-    .replace(/\u2014/g, '--')             // em-dash → --
-    .replace(/\u2013/g, '-')              // en-dash → -
-    .replace(/\r\n/g, '\n')              // normalize line endings
-    .replace(/\r/g, '\n')
-    .replace(/\bRECURSIVE\b/gi, (m) => ' '.repeat(m.length)) // pgsql-ast-parser doesn't support WITH RECURSIVE
-    .trim();
+/**
+ * Cleans pasted SQL for the parser. Some fixes change the text's length (trimming, em dashes,
+ * zero-width chars, CRLF), so `editorOffset[i]` records where cleaned character i came from in the
+ * editor. That keeps node ↔ code highlights aligned.
+ */
+function sanitizeInput(raw: string): { text: string; editorOffset: number[] } {
+  let text = '';
+  const editorOffset: number[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    let out = ch;
+    if (/[\uFEFF\u200B-\u200D\u2060]/.test(ch)) out = '';       // BOM, zero-width chars
+    else if (ch === '\u2018' || ch === '\u2019') out = "'";      // smart single quotes → '
+    else if (ch === '\u201C' || ch === '\u201D') out = '"';      // smart double quotes → "
+    else if (ch === '\u2014') out = '--';                        // em-dash → --
+    else if (ch === '\u2013') out = '-';                         // en-dash → -
+    else if (ch === '\r') out = raw[i + 1] === '\n' ? '' : '\n'; // normalize line endings
+    text += out;
+    for (let k = 0; k < out.length; k++) editorOffset.push(i);
+  }
+  // pgsql-ast-parser doesn't support WITH RECURSIVE (same length, so offsets don't move)
+  text = text.replace(/\bRECURSIVE\b/gi, (m) => ' '.repeat(m.length));
+  const start = text.length - text.trimStart().length;
+  const end = text.trimEnd().length;
+  return { text: text.slice(start, end), editorOffset: editorOffset.slice(start, end) };
 }
 
 function extractErrorMessage(err: unknown): string {
@@ -72,12 +86,18 @@ function shortenError(msg: string): string {
 
 /** Parses SQL into a diagram. `graph` is null when parsing fails, so the last good diagram stays up. */
 function parseToGraph(raw: string): { graph: { nodes: Node[]; edges: Edge[] } | null; error: string | null } {
-  const input = sanitizeInput(raw);
+  const { text: input, editorOffset } = sanitizeInput(raw);
   if (!input) return { graph: { nodes: [], edges: [] }, error: null };
 
   try {
     const ast = parse(input, { locationTracking: true });
-    return { graph: buildFlowFromAST(ast, input), error: null };
+    const graph = buildFlowFromAST(ast, input);
+    // Node locations point into the cleaned text; map them back onto the editor's text.
+    for (const node of graph.nodes) {
+      const loc = node.data.loc as AstLoc | undefined;
+      if (loc) node.data.loc = { start: editorOffset[loc.start], end: editorOffset[Math.max(loc.start, loc.end - 1)] + 1 };
+    }
+    return { graph, error: null };
   } catch (err) {
     return { graph: null, error: parseErrorMessage(raw, input, err) };
   }
@@ -133,7 +153,8 @@ function AppInner() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closePanelTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeAboutTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { fitView } = useReactFlow();
+  const { fitView, getInternalNode, getViewport, setCenter } = useReactFlow();
+  const flowStore = useStoreApi();
 
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof Monaco | null>(null);
@@ -179,6 +200,21 @@ function AppInner() {
     setSelectedNode(null);
     decorationsRef.current?.set([]);
   }, []);
+
+  // Pans the diagram, keeping the zoom, when a node selected from the code isn't fully in view.
+  const revealNode = useCallback((id: string) => {
+    const node = getInternalNode(id);
+    if (!node) return;
+    const { width, height } = flowStore.getState();
+    const { x: panX, y: panY, zoom } = getViewport();
+    const { x, y } = node.internals.positionAbsolute;
+    const w = node.measured.width ?? 0;
+    const h = node.measured.height ?? 0;
+    const left = x * zoom + panX;
+    const top = y * zoom + panY;
+    if (left >= 0 && top >= 0 && left + w * zoom <= width && top + h * zoom <= height) return;
+    setCenter(x + w / 2, y + h / 2, { zoom, duration: 300 });
+  }, [getInternalNode, getViewport, setCenter, flowStore]);
 
   const parseSql = useCallback((raw: string) => {
     clearHighlight();
@@ -274,6 +310,7 @@ function AppInner() {
           setHighlightedNodeId(match.id);
           const loc = match.data?.loc as AstLoc | undefined;
           if (loc) highlightRange(loc);
+          revealNode(match.id);
         } else {
           clearHighlight();
         }
@@ -292,7 +329,7 @@ function AppInner() {
         }, 50);
       });
     });
-  }, [highlightRange, clearHighlight]);
+  }, [highlightRange, clearHighlight, revealNode]);
 
   const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     if (closePanelTimeoutRef.current) {
