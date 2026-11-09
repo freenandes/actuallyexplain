@@ -97,7 +97,7 @@ function exprToString(e: any, depth = 0): string {
     case 'case':
       return 'CASE…END';
     case 'ternary':
-      return `${exprToString(e.value, depth + 1)} BETWEEN ${exprToString(e.lo, depth + 1)} AND ${exprToString(e.hi, depth + 1)}`;
+      return `${exprToString(e.value, depth + 1)} ${e.op} ${exprToString(e.lo, depth + 1)} AND ${exprToString(e.hi, depth + 1)}`;
     case 'select': {
       const subCols = (e.columns ?? [])
         .map((c: any) => exprToString(c.expr, depth + 1))
