@@ -70,6 +70,36 @@ function shortenError(msg: string): string {
   return firstLine.length > 120 ? firstLine.slice(0, 117) + '…' : firstLine;
 }
 
+/** Parses SQL into a diagram. `graph` is null when parsing fails, so the last good diagram stays up. */
+function parseToGraph(raw: string): { graph: { nodes: Node[]; edges: Edge[] } | null; error: string | null } {
+  const input = sanitizeInput(raw);
+  if (!input) return { graph: { nodes: [], edges: [] }, error: null };
+
+  try {
+    const ast = parse(input, { locationTracking: true });
+    return { graph: buildFlowFromAST(ast, input), error: null };
+  } catch (err) {
+    return { graph: null, error: parseErrorMessage(raw, input, err) };
+  }
+}
+
+function parseErrorMessage(raw: string, input: string, err: unknown): string {
+  if (/\bWITH\b[\s\S]*?\b\w+\s*\([^)]+\)\s*\bAS\b/i.test(raw)) {
+    return 'Explicit CTE column lists (e.g., CTE_Name (col1, col2)) are not currently supported by our parser. Try aliasing your columns directly inside the SELECT statement instead!';
+  } else if (/\bNATURAL\s+JOIN\b/i.test(input)) {
+    return 'NATURAL JOIN is not currently supported by our parsing engine. Please use an explicit JOIN with an ON or USING clause.';
+  } else if (/^\s*(GRANT|REVOKE)\b/i.test(raw)) {
+    return 'Data Control Language (DCL) statements like GRANT and REVOKE are not currently supported for visualization. Try visualizing a SELECT, INSERT, or CREATE statement instead!';
+  } else if (/^\s*(CREATE|DROP)\s+(ROLE|USER)\b/i.test(raw)) {
+    return 'Administrative commands (like CREATE ROLE or CREATE USER) are not currently supported for visualization. Try visualizing a table definition or data query instead!';
+  } else if (/^\s*EXPLAIN\b/i.test(raw)) {
+    return 'actuallyEXPLAIN visualizes the logical intent of raw SQL, not physical database execution plans. Please remove the EXPLAIN keyword and any text output, and just paste your raw query!';
+  }
+  const message = extractErrorMessage(err);
+  console.warn('[SQL Parse Error]', message);
+  return shortenError(message);
+}
+
 function findNodeAtOffset(nodes: Node[], offset: number): Node | null {
   let best: Node | null = null;
   let bestSize = Infinity;
@@ -88,9 +118,11 @@ function findNodeAtOffset(nodes: Node[], offset: number): Node | null {
 }
 
 function AppInner() {
-  const [nodes, setNodes] = useState<Node[]>([]);
-  const [edges, setEdges] = useState<Edge[]>([]);
-  const [parseError, setParseError] = useState<string | null>(null);
+  // The default query's diagram is the initial state, so it's ready on the first render.
+  const [initial] = useState(() => parseToGraph(DEFAULT_SQL));
+  const [nodes, setNodes] = useState<Node[]>(initial.graph?.nodes ?? []);
+  const [edges, setEdges] = useState<Edge[]>(initial.graph?.edges ?? []);
+  const [parseError, setParseError] = useState<string | null>(initial.error);
   const [highlightedNodeId, setHighlightedNodeId] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [isClosingPanel, setIsClosingPanel] = useState(false);
@@ -149,45 +181,14 @@ function AppInner() {
   }, []);
 
   const parseSql = useCallback((raw: string) => {
-    const input = sanitizeInput(raw);
     clearHighlight();
-
-    if (!input) {
-      setNodes([]);
-      setEdges([]);
-      setParseError(null);
-      return;
-    }
-
-    try {
-      const ast = parse(input, { locationTracking: true });
-      const graph = buildFlowFromAST(ast, input);
-
+    const { graph, error } = parseToGraph(raw);
+    if (graph) {
       setNodes(graph.nodes);
       setEdges(graph.edges);
-      setParseError(null);
-    } catch (err) {
-      if (/\bWITH\b[\s\S]*?\b\w+\s*\([^)]+\)\s*\bAS\b/i.test(raw)) {
-        setParseError('Explicit CTE column lists (e.g., CTE_Name (col1, col2)) are not currently supported by our parser. Try aliasing your columns directly inside the SELECT statement instead!');
-      } else if (/\bNATURAL\s+JOIN\b/i.test(input)) {
-        setParseError('NATURAL JOIN is not currently supported by our parsing engine. Please use an explicit JOIN with an ON or USING clause.');
-      } else if (/^\s*(GRANT|REVOKE)\b/i.test(raw)) {
-        setParseError('Data Control Language (DCL) statements like GRANT and REVOKE are not currently supported for visualization. Try visualizing a SELECT, INSERT, or CREATE statement instead!');
-      } else if (/^\s*(CREATE|DROP)\s+(ROLE|USER)\b/i.test(raw)) {
-        setParseError('Administrative commands (like CREATE ROLE or CREATE USER) are not currently supported for visualization. Try visualizing a table definition or data query instead!');
-      } else if (/^\s*EXPLAIN\b/i.test(raw)) {
-        setParseError('actuallyEXPLAIN visualizes the logical intent of raw SQL, not physical database execution plans. Please remove the EXPLAIN keyword and any text output, and just paste your raw query!');
-      } else {
-        const message = extractErrorMessage(err);
-        console.warn('[SQL Parse Error]', message);
-        setParseError(shortenError(message));
-      }
     }
+    setParseError(error);
   }, [clearHighlight]);
-
-  useEffect(() => {
-    parseSql(DEFAULT_SQL);
-  }, [parseSql]);
 
   const prevNodeCount = useRef(0);
   useEffect(() => {

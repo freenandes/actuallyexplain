@@ -3,7 +3,7 @@ import {
   X,
   ExternalLink,
 } from 'lucide-react';
-import { kindIcons } from './SqlNode';
+import { kindIcons } from './kindIcons';
 import styles from './NodeDetailsPanel.module.css';
 
 // ── Encyclopedia: standard definitions + docs ──
