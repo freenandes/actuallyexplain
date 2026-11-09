@@ -1,55 +1,9 @@
 import { useContext } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import {
-  Database,
-  Link,
-  Filter,
-  ArrowUpDown,
-  Trash2,
-  Scissors,
-  ArrowLeftFromLine,
-  Settings,
-  Columns3,
-  Crosshair,
-  Braces,
-  type LucideIcon,
-  SquaresUnite,
-  Group,
-  Repeat2,
-  BetweenHorizonalStart,
-  SquarePen,
-  SquarePlus,
-  Cog,
-  Replace,
-  SquareDashedMousePointer,
-  Info,
-} from 'lucide-react';
+import { Settings, Info } from 'lucide-react';
 import { NodeActionsContext } from './NodeActionsContext';
+import { kindIcons } from './kindIcons';
 import styles from './SqlNode.module.css';
-
-export const kindIcons: Record<string, LucideIcon> = {
-  table: Database,
-  insert_target: Database,
-  join: Link,
-  where: Filter,
-  having: Filter,
-  select: SquareDashedMousePointer,
-  groupby: Group,
-  orderby: ArrowUpDown,
-  limit: Scissors,
-  cte: Repeat2,
-  union: SquaresUnite,
-  values: Braces,
-  insert: BetweenHorizonalStart,
-  update: SquarePen,
-  delete: Trash2,
-  create: SquarePlus,
-  column: Columns3,
-  set: Replace,
-  returning: ArrowLeftFromLine,
-  operation: Cog,
-  target: Crosshair,
-};
 
 export default function SqlNode({ id, data }: NodeProps) {
   const kind = (data.kind as string) ?? 'operation';
