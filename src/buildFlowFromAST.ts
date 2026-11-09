@@ -333,7 +333,7 @@ class GraphBuilder {
 
   addNode(label: string, kind: string, loc?: AstLoc): string {
     const id = `n-${this.idCounter++}`;
-    this.nodes.push({ id, label, kind, loc });
+    this.nodes.push({ id, label, kind, loc: this.closeParens(loc) });
     return id;
   }
 
@@ -356,6 +356,41 @@ class GraphBuilder {
     const idx = after.indexOf(alias);
     if (idx >= 0) return { start: loc.start, end: loc.end + idx + alias.length };
     return loc;
+  }
+
+  /**
+   * pgsql-ast-parser leaves parentheses out of its locations, so a range ending in a bracketed part
+   * (`x IN (1, 2)`, `(a OR b)`) stops before the `)`. Extend it over the `)` of every `(` it leaves
+   * open, ignoring brackets inside quotes and comments.
+   */
+  closeParens(loc: AstLoc | undefined): AstLoc | undefined {
+    if (!loc) return loc;
+    const { sql } = this;
+    let open = 0;
+    for (let i = loc.start; i < loc.end; i++) {
+      const ch = sql[i];
+      if (ch === "'" || ch === '"') {
+        const close = sql.indexOf(ch, i + 1); // skip a quoted string or identifier
+        i = close === -1 ? loc.end : close;
+      } else if (sql.startsWith('--', i)) {
+        const eol = sql.indexOf('\n', i); // skip a line comment
+        i = eol === -1 ? loc.end : eol;
+      } else if (sql.startsWith('/*', i)) {
+        const close = sql.indexOf('*/', i + 2); // skip a block comment
+        i = close === -1 ? loc.end : close + 1;
+      } else if (ch === '(') {
+        open++;
+      } else if (ch === ')' && open > 0) {
+        open--;
+      }
+    }
+    let end = loc.end;
+    for (; open > 0; open--) {
+      const m = /^\s*\)/.exec(sql.slice(end));
+      if (!m) break;
+      end += m[0].length;
+    }
+    return { start: loc.start, end };
   }
 
   addEdge(source: string, target: string, kind?: string, isRecursive?: boolean) {
