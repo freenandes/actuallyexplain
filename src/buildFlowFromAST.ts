@@ -573,7 +573,9 @@ function buildSelect(
 
   // FROM sources — each table/subquery is a root node
   if (ast.from) {
-    for (const src of ast.from) {
+    for (const [i, src] of ast.from.entries()) {
+      // The first source's range takes in the FROM keyword, the way WHERE, GROUP BY, … do.
+      const withFrom = (loc: AstLoc | undefined) => (i === 0 ? g.kwLoc(loc, 'FROM') : loc);
       const isSelfRef = src.type === 'table' && selfRef && tblName(src) === selfRef.selfName;
 
       if (isSelfRef && !src.join) {
@@ -592,24 +594,24 @@ function buildSelect(
         } else {
           const nameLoc = astLoc(src.name) ?? astLoc(src);
           const tblLoc = g.alLoc(nameLoc, src.name?.alias);
-          srcId = g.addNode(`${name}${alias}`, 'table', tblLoc);
+          srcId = g.addNode(`${name}${alias}`, 'table', withFrom(tblLoc));
         }
       } else if (src.type === 'select') {
         const subId = buildSelect(src, g, cteMap);
         const alias = src.alias?.name ? ` (${src.alias.name})` : '';
-        const wrapId = g.addNode(`subquery${alias}`, 'table', astLoc(src));
+        const wrapId = g.addNode(`subquery${alias}`, 'table', withFrom(astLoc(src)));
         g.addEdge(subId, wrapId, 'table');
         srcId = wrapId;
       } else if (src.type === 'statement' && src.statement) {
         const subId = dispatchBuild(src.statement, g, cteMap);
         const alias = src.alias ? ` (${src.alias})` : '';
-        const wrapId = g.addNode(`subquery${alias}`, 'table', astLoc(src));
+        const wrapId = g.addNode(`subquery${alias}`, 'table', withFrom(astLoc(src)));
         g.addEdge(subId, wrapId, 'table');
         srcId = wrapId;
       } else {
         const nameLoc = astLoc(src.name) ?? astLoc(src);
         const tblLoc = g.alLoc(nameLoc, src.name?.alias);
-        srcId = g.addNode(`${tblName(src)}`, 'table', tblLoc);
+        srcId = g.addNode(`${tblName(src)}`, 'table', withFrom(tblLoc));
       }
 
       if (src.join) {
@@ -879,14 +881,16 @@ function buildWith(ast: AST, g: GraphBuilder): string {
   const cteMap = new Map<string, string>();
 
   if (ast.bind && Array.isArray(ast.bind)) {
-    for (const cte of ast.bind) {
+    for (const [i, cte] of ast.bind.entries()) {
       const name = cte.alias?.name ?? '?';
+      // The first CTE's range takes in the WITH keyword, so clicking WITH selects it.
+      const cteLoc = i === 0 ? g.kwLoc(astLoc(cte), 'WITH') : astLoc(cte);
       const stmt = cte.statement;
       const isUnion = stmt && (stmt.type === 'union' || stmt.type === 'union all');
       const isRecursive = isUnion && containsTableRef(stmt, name);
 
       if (isRecursive) {
-        const cteHeaderId = g.addNode(`RECURSIVE: ${name}`, 'cte', astLoc(cte));
+        const cteHeaderId = g.addNode(`RECURSIVE: ${name}`, 'cte', cteLoc);
 
         const unionId = g.addNode(stmt.type.toUpperCase(), 'union', astLoc(stmt));
         g.addEdge(unionId, cteHeaderId, 'cte');
@@ -913,7 +917,7 @@ function buildWith(ast: AST, g: GraphBuilder): string {
 
         cteMap.set(name, cteHeaderId);
       } else {
-        const cteHeaderId = g.addNode(`CTE: ${name}`, 'cte', astLoc(cte));
+        const cteHeaderId = g.addNode(`CTE: ${name}`, 'cte', cteLoc);
 
         if (stmt) {
           const innerOutputId = dispatchBuild(stmt, g, new Map(cteMap));
