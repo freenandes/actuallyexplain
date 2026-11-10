@@ -174,6 +174,10 @@ function generateDetailedContext(kind: string, label: string): string {
       return 'This step combines rows from two data sources based on a matching condition.';
     }
     case 'select': {
+      if (/^SELECT DISTINCT ON \(/i.test(label))
+        return 'This step keeps only the first row of each group of rows that share the same DISTINCT ON values — which row counts as first depends on ORDER BY — and then selects the output columns.';
+      if (/^SELECT DISTINCT /i.test(label))
+        return `This step selects \`${label.replace(/^SELECT DISTINCT\s+/i, '')}\` and then removes duplicate rows, so each distinct combination of values appears only once.`;
       const cols = label.replace(/^SELECT\s+/i, '');
       if (cols === '*') return 'This step passes through all available columns from the preceding operations without transformation.';
       return `This step shapes the output by selecting specific columns: \`${cols}\`. Any columns not listed here are dropped from the result.`;
@@ -187,8 +191,13 @@ function generateDetailedContext(kind: string, label: string): string {
       return `This step sorts the entire result set by \`${cols}\`. Without this step, the database does not guarantee any particular row order.`;
     }
     case 'limit': {
-      const val = label.replace(/^LIMIT\s+/i, '');
-      return `This step caps the output to \`${val}\` rows. Combined with ORDER BY, this is commonly used for "top N" queries or pagination.`;
+      const limit = label.match(/^LIMIT (.+?)(?: OFFSET |$)/)?.[1];
+      const offset = label.match(/OFFSET (.+)$/)?.[1];
+      if (offset && limit)
+        return `This step skips the first \`${offset}\` rows and returns at most the next \`${limit}\`. Combined with ORDER BY, this is how pagination is usually done.`;
+      if (offset)
+        return `This step skips the first \`${offset}\` rows and returns all the rest. Without ORDER BY, which rows are skipped isn't guaranteed.`;
+      return `This step caps the output to \`${limit ?? '?'}\` rows. Combined with ORDER BY, this is commonly used for "top N" queries or pagination.`;
     }
     case 'cte': {
       const name = label.replace(/^(CTE|RECURSIVE):\s*/i, '').trim();
