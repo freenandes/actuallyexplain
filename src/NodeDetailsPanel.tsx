@@ -151,6 +151,8 @@ function generateDetailedContext(kind: string, label: string): string {
       if (label === '(no source)') return 'No explicit data source is specified. The query generates data without reading from a table.';
       if (label.startsWith('subquery'))
         return 'This step loads data from an inline subquery — a full query nested inside the FROM clause that acts as a virtual table.';
+      if (/^[\w.]+\(/.test(label))
+        return `This step calls the set-returning function \`${label}\` and uses the rows it returns as a data source, like a table.`;
       const name = label.replace(/\s*\(.*\)$/, '').trim();
       return `This step reads all rows from the \`${name}\` table into the pipeline. This is the raw, unfiltered dataset that subsequent operations will process.`;
     }
