@@ -12,4 +12,5 @@
 ## Code facts
 - Expression text in a node's label, description and details panel all comes from `exprToString` in `src/buildFlowFromAST.ts`; the description and panel text are derived from the label.
 - Check pgsql-ast-parser's real types and grammar (`node_modules/pgsql-ast-parser/src/syntax/ast.ts`, `expr.ne`) instead of assuming. Its AST drops parentheses (`precedence()` in `buildFlowFromAST.ts` mirrors the grammar to add them back), and `<>` arrives as `!=`.
-- `sanitizeInput` in `App.tsx` blanks out `RECURSIVE`, because the parser doesn't support `WITH RECURSIVE`.
+- `src/parseQuery.ts` turns editor text into a diagram. `sanitizeInput` fixes pasted SQL only outside strings, quoted identifiers and comments, and maps positions back to the editor.
+- pgsql-ast-parser accepts `WITH RECURSIVE` only with a column list (`t(n) AS …`), so `parseSql` retries with the keyword blanked.

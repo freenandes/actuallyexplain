@@ -15,13 +15,13 @@ import {
   applyEdgeChanges,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { parse } from 'pgsql-ast-parser';
+import { parseToGraph } from './parseQuery';
 import Editor, { type OnMount } from '@monaco-editor/react';
 import type * as Monaco from 'monaco-editor';
 import { Analytics } from '@vercel/analytics/react';
 import { CircleQuestionMark, Code2, Workflow } from 'lucide-react';
 import AboutModal from './AboutModal';
-import { buildFlowFromAST, type AstLoc } from './buildFlowFromAST';
+import type { AstLoc } from './buildFlowFromAST';
 import RecursiveEdge from './RecursiveEdge';
 import SqlNode from './SqlNode';
 import NodeDetailsPanel from './NodeDetailsPanel';
@@ -42,83 +42,6 @@ ORDER BY o.total DESC;`;
 
 const DEBOUNCE_MS = 300;
 const PANEL_CLOSE_MS = 400;
-
-/**
- * Cleans pasted SQL for the parser. Some fixes change the text's length (trimming, em dashes,
- * zero-width chars, CRLF), so `editorOffset[i]` records where cleaned character i came from in the
- * editor. That keeps node ↔ code highlights aligned.
- */
-function sanitizeInput(raw: string): { text: string; editorOffset: number[] } {
-  let text = '';
-  const editorOffset: number[] = [];
-  for (let i = 0; i < raw.length; i++) {
-    const ch = raw[i];
-    let out = ch;
-    if (/[\uFEFF\u200B-\u200D\u2060]/.test(ch)) out = '';       // BOM, zero-width chars
-    else if (ch === '\u2018' || ch === '\u2019') out = "'";      // smart single quotes → '
-    else if (ch === '\u201C' || ch === '\u201D') out = '"';      // smart double quotes → "
-    else if (ch === '\u2014') out = '--';                        // em-dash → --
-    else if (ch === '\u2013') out = '-';                         // en-dash → -
-    else if (ch === '\r') out = raw[i + 1] === '\n' ? '' : '\n'; // normalize line endings
-    text += out;
-    for (let k = 0; k < out.length; k++) editorOffset.push(i);
-  }
-  // pgsql-ast-parser doesn't support WITH RECURSIVE (same length, so offsets don't move)
-  text = text.replace(/\bRECURSIVE\b/gi, (m) => ' '.repeat(m.length));
-  const start = text.length - text.trimStart().length;
-  const end = text.trimEnd().length;
-  return { text: text.slice(start, end), editorOffset: editorOffset.slice(start, end) };
-}
-
-function extractErrorMessage(err: unknown): string {
-  if (err instanceof Error) return err.message;
-  if (typeof err === 'string') return err;
-  if (err && typeof err === 'object' && 'message' in err) {
-    return String((err as { message: unknown }).message);
-  }
-  return 'Unknown parse error';
-}
-
-function shortenError(msg: string): string {
-  const firstLine = msg.split('\n').find((l) => l.trim()) ?? msg;
-  return firstLine.length > 120 ? firstLine.slice(0, 117) + '…' : firstLine;
-}
-
-/** Parses SQL into a diagram. `graph` is null when parsing fails, so the last good diagram stays up. */
-function parseToGraph(raw: string): { graph: { nodes: Node[]; edges: Edge[] } | null; error: string | null } {
-  const { text: input, editorOffset } = sanitizeInput(raw);
-  if (!input) return { graph: { nodes: [], edges: [] }, error: null };
-
-  try {
-    const ast = parse(input, { locationTracking: true });
-    const graph = buildFlowFromAST(ast, input);
-    // Node locations point into the cleaned text; map them back onto the editor's text.
-    for (const node of graph.nodes) {
-      const loc = node.data.loc as AstLoc | undefined;
-      if (loc) node.data.loc = { start: editorOffset[loc.start], end: editorOffset[Math.max(loc.start, loc.end - 1)] + 1 };
-    }
-    return { graph, error: null };
-  } catch (err) {
-    return { graph: null, error: parseErrorMessage(raw, input, err) };
-  }
-}
-
-function parseErrorMessage(raw: string, input: string, err: unknown): string {
-  if (/\bWITH\b[\s\S]*?\b\w+\s*\([^)]+\)\s*\bAS\b/i.test(raw)) {
-    return 'Explicit CTE column lists (e.g., CTE_Name (col1, col2)) are not currently supported by our parser. Try aliasing your columns directly inside the SELECT statement instead!';
-  } else if (/\bNATURAL\s+JOIN\b/i.test(input)) {
-    return 'NATURAL JOIN is not currently supported by our parsing engine. Please use an explicit JOIN with an ON or USING clause.';
-  } else if (/^\s*(GRANT|REVOKE)\b/i.test(raw)) {
-    return 'Data Control Language (DCL) statements like GRANT and REVOKE are not currently supported for visualization. Try visualizing a SELECT, INSERT, or CREATE statement instead!';
-  } else if (/^\s*(CREATE|DROP)\s+(ROLE|USER)\b/i.test(raw)) {
-    return 'Administrative commands (like CREATE ROLE or CREATE USER) are not currently supported for visualization. Try visualizing a table definition or data query instead!';
-  } else if (/^\s*EXPLAIN\b/i.test(raw)) {
-    return 'actuallyEXPLAIN visualizes the logical intent of raw SQL, not physical database execution plans. Please remove the EXPLAIN keyword and any text output, and just paste your raw query!';
-  }
-  const message = extractErrorMessage(err);
-  console.warn('[SQL Parse Error]', message);
-  return shortenError(message);
-}
 
 function findNodeAtOffset(nodes: Node[], offset: number): Node | null {
   let best: Node | null = null;
