@@ -43,13 +43,22 @@ ORDER BY o.total DESC;`;
 const DEBOUNCE_MS = 300;
 const PANEL_CLOSE_MS = 400;
 
-function findNodeAtOffset(nodes: Node[], offset: number): Node | null {
+/**
+ * The node for a code selection: the smallest node whose range contains all of it. When no node
+ * spans the whole selection, the node at its start, so the result doesn't depend on the direction
+ * it was made in.
+ */
+function findNodeForRange(nodes: Node[], start: number, end: number): Node | null {
+  return findSmallestContaining(nodes, start, end) ?? (end > start ? findSmallestContaining(nodes, start, start) : null);
+}
+
+function findSmallestContaining(nodes: Node[], start: number, end: number): Node | null {
   let best: Node | null = null;
   let bestSize = Infinity;
   for (const n of nodes) {
     const loc = n.data?.loc as AstLoc | undefined;
     if (!loc) continue;
-    if (offset >= loc.start && offset <= loc.end) {
+    if (start >= loc.start && end <= loc.end) {
       const size = loc.end - loc.start;
       if (size < bestSize) {
         best = n;
@@ -87,6 +96,8 @@ function AppInner() {
   const isStale = parseError !== null && nodes.length > 0;
   const staleRef = useRef(false);
   const suppressCursorRef = useRef(false);
+  const flowWrapperRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
   useEffect(() => { staleRef.current = isStale; }, [isStale]);
@@ -129,18 +140,28 @@ function AppInner() {
   }, []);
 
   // Pans the diagram, keeping the zoom, when a node selected from the code isn't fully in view.
+  // The details panel covers the right of the canvas, so only the part left of it counts as visible.
   const revealNode = useCallback((id: string) => {
     const node = getInternalNode(id);
     if (!node) return;
     const { width, height } = flowStore.getState();
+    // The panel is anchored to the overlay's right edge; offsetWidth ignores its slide-in transform.
+    const pane = flowWrapperRef.current?.getBoundingClientRect();
+    const overlay = overlayRef.current;
+    const panelWidth = (overlay?.firstElementChild as HTMLElement | null)?.offsetWidth ?? 0;
+    const panelLeft = overlay ? overlay.getBoundingClientRect().right - panelWidth : Infinity;
+    const covered = pane && panelLeft < pane.right ? pane.right - Math.max(panelLeft, pane.left) : 0;
+    const visibleWidth = width - covered;
+    if (visibleWidth < 120) return; // the panel covers the diagram (mobile)
     const { x: panX, y: panY, zoom } = getViewport();
     const { x, y } = node.internals.positionAbsolute;
     const w = node.measured.width ?? 0;
     const h = node.measured.height ?? 0;
     const left = x * zoom + panX;
     const top = y * zoom + panY;
-    if (left >= 0 && top >= 0 && left + w * zoom <= width && top + h * zoom <= height) return;
-    setCenter(x + w / 2, y + h / 2, { zoom, duration: 300 });
+    if (left >= 0 && top >= 0 && left + w * zoom <= visibleWidth && top + h * zoom <= height) return;
+    // setCenter centres on the whole canvas; shift so the node lands in the middle of the visible part.
+    setCenter(x + w / 2 + covered / 2 / zoom, y + h / 2, { zoom, duration: 300 });
   }, [getInternalNode, getViewport, setCenter, flowStore]);
 
   const parseSql = useCallback((raw: string) => {
@@ -225,16 +246,18 @@ function AppInner() {
       }
     }, true);
 
-    editor.onDidChangeCursorPosition((e) => {
+    editor.onDidChangeCursorSelection((e) => {
       if (suppressCursorRef.current || staleRef.current) return;
       if (e.reason === 3) {
-        // reason 3 = Explicit (click or keyboard navigation)
+        // reason 3 = Explicit (click, drag or keyboard)
         const model = editor.getModel();
         if (!model) return;
-        const offset = model.getOffsetAt(e.position);
-        const match = findNodeAtOffset(nodesRef.current, offset);
+        const start = model.getOffsetAt(e.selection.getStartPosition());
+        const end = model.getOffsetAt(e.selection.getEndPosition());
+        const match = findNodeForRange(nodesRef.current, start, end);
         if (match) {
           setHighlightedNodeId(match.id);
+          setSelectedNode((prev) => (prev ? match : null)); // an open details panel follows the selection
           const loc = match.data?.loc as AstLoc | undefined;
           if (loc) highlightRange(loc);
           revealNode(match.id);
@@ -287,6 +310,8 @@ function AppInner() {
         }
       }
       requestAnimationFrame(() => { suppressCursorRef.current = false; });
+    } else {
+      decorationsRef.current?.set([]); // no source range: don't leave the previous one highlighted
     }
   }, [highlightRange]);
 
@@ -355,8 +380,15 @@ function AppInner() {
         }
       }
       requestAnimationFrame(() => { suppressCursorRef.current = false; });
+    } else {
+      decorationsRef.current?.set([]); // no source range: don't leave the previous one highlighted
     }
   }, [highlightRange]);
+
+  // When the details panel opens or switches node, make sure that node isn't hidden behind it.
+  useEffect(() => {
+    if (selectedNode) revealNode(selectedNode.id);
+  }, [selectedNode, revealNode]);
 
   const nodeActions = useMemo(() => ({ openDetails }), [openDetails]);
 
@@ -444,7 +476,7 @@ function AppInner() {
             <span className={styles.staleBannerError}>{parseError}</span>
           </div>
         )}
-        <div className={styles.flowWrapper} onKeyDown={handleFlowKeyDown}>
+        <div className={styles.flowWrapper} ref={flowWrapperRef} onKeyDown={handleFlowKeyDown}>
           <NodeActionsContext.Provider value={nodeActions}>
             <ReactFlow
               nodes={displayNodes}
@@ -477,6 +509,7 @@ function AppInner() {
       {/* ─── Details overlay (container-level for mobile full-screen) ─── */}
       {selectedNode && (
         <div
+          ref={overlayRef}
           className={styles.detailsOverlay}
           style={{ '--node-color': selectedNode.style?.['--node-color' as keyof typeof selectedNode.style] ?? '#58a6ff' } as React.CSSProperties}
         >
