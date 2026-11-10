@@ -4,6 +4,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { kindIcons } from './kindIcons';
+import { aggregateCalls, listText } from './buildFlowFromAST';
 import styles from './NodeDetailsPanel.module.css';
 
 // ── Encyclopedia: standard definitions + docs ──
@@ -185,10 +186,16 @@ function generateDetailedContext(kind: string, label: string): string {
       const onMatch = label.match(/ON\s+(.+)/i);
       const using = label.match(/ USING \((.+)\)$/);
       const joinType = label.match(/^(\w+\s+JOIN)/i)?.[1] ?? 'JOIN';
+      const unmatched = {
+        'INNER JOIN': 'Rows without a match on the other side are left out.',
+        'LEFT JOIN': "Rows from the left side without a match are kept, with NULLs for the right side's columns.",
+        'RIGHT JOIN': "Rows from the right side without a match are kept, with NULLs for the left side's columns.",
+        'FULL JOIN': "Rows without a match on either side are kept, with NULLs for the missing side's columns.",
+      }[joinType.toUpperCase()] ?? 'Rows without a match are handled according to the join type.';
       if (using)
-        return `This \`${joinType}\` combines rows from two tables where \`${using[1]}\` is equal in both. Each column listed in USING appears only once in the result instead of once per table.`;
+        return `This \`${joinType}\` combines rows from two tables where \`${using[1]}\` is equal in both. Each column listed in USING appears only once in the result instead of once per table. ${unmatched}`;
       if (onMatch)
-        return `This \`${joinType}\` combines rows from two tables, matching them where \`${onMatch[1]}\`. Rows without a match are handled according to the join type.`;
+        return `This \`${joinType}\` combines rows from two tables, matching them where \`${onMatch[1]}\`. ${unmatched}`;
       return 'This step combines rows from two data sources based on a matching condition.';
     }
     case 'select': {
@@ -198,7 +205,11 @@ function generateDetailedContext(kind: string, label: string): string {
         return `This step selects \`${label.replace(/^SELECT DISTINCT\s+/i, '')}\` and then removes duplicate rows, so each distinct combination of values appears only once.`;
       const cols = label.replace(/^SELECT\s+/i, '');
       if (cols === '*') return 'This step passes through all available columns from the preceding operations without transformation.';
-      return `This step shapes the output by selecting specific columns: \`${cols}\`. Any columns not listed here are dropped from the result.`;
+      const aggregates = aggregateCalls(label);
+      const calculates = aggregates.length
+        ? ` It also calculates ${listText(aggregates.map((a) => `\`${a}\``))} for each group of rows (with no GROUP BY, all rows form a single group).`
+        : '';
+      return `This step shapes the output by selecting specific columns: \`${cols}\`. Any columns not listed here are dropped from the result.${calculates}`;
     }
     case 'groupby': {
       const cols = label.replace(/^GROUP BY\s+/i, '');
