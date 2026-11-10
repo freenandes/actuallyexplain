@@ -97,8 +97,8 @@ function exprToString(e: any, depth = 0): string {
 
   switch (e.type) {
     case 'ref': {
-      const tbl = e.table?.name ? `${e.table.name}.` : '';
-      return `${tbl}${e.name}`;
+      const tbl = e.table?.name ? `${ident(e.table.name)}.` : '';
+      return `${tbl}${ident(e.name)}`;
     }
     case 'binary': {
       const p = precedence(e);
@@ -117,31 +117,73 @@ function exprToString(e: any, depth = 0): string {
     case 'numeric':
       return String(e.value);
     case 'string':
-      return `'${e.value}'`;
+      return `'${String(e.value).replace(/'/g, "''")}'`;
     case 'boolean':
       return String(e.value);
     case 'null':
       return 'NULL';
-    case 'parameter':
-      return `$${e.name ?? '?'}`;
+    case 'parameter': {
+      const name = String(e.name ?? '?');
+      return /^[$:@?]/.test(name) ? name : `$${name}`; // the parser keeps the $ of $1
+    }
     case 'call': {
-      const fname = e.function?.name ?? '?';
-      const args = (e.args ?? []).map((a: any) => exprToString(a, depth + 1)).join(', ');
-      return `${fname}(${args})`;
+      // Aggregate and window details change the result, so keep them: count(DISTINCT x),
+      // string_agg(x, ',' ORDER BY x), sum(x) FILTER (WHERE …), rank() OVER (…).
+      const sub = (x: any) => exprToString(x, depth + 1);
+      const orderList = (items: any[]) => items.map((o: any) => orderItemToString(o, depth + 1)).join(', ');
+      const args = (e.args ?? []).map(sub).join(', ');
+      const distinct = e.distinct === 'distinct' ? 'DISTINCT ' : '';
+      const order = e.orderBy?.length ? ` ORDER BY ${orderList(e.orderBy)}` : '';
+      let out = `${qualifiedName(e.function)}(${distinct}${args}${order})`;
+      if (e.withinGroup) out += ` WITHIN GROUP (ORDER BY ${orderItemToString(e.withinGroup, depth + 1)})`;
+      if (e.filter) out += ` FILTER (WHERE ${sub(e.filter)})`;
+      if (e.over) {
+        const parts = [];
+        if (e.over.partitionBy?.length) parts.push(`PARTITION BY ${e.over.partitionBy.map(sub).join(', ')}`);
+        if (e.over.orderBy?.length) parts.push(`ORDER BY ${orderList(e.over.orderBy)}`);
+        out += ` OVER (${parts.join(' ')})`;
+      }
+      return out;
     }
     case 'cast':
-      return `CAST(${exprToString(e.operand, depth + 1)} AS ${e.to?.name ?? '?'})`;
-    case 'member':
-      return `${exprToString(e.operand, depth + 1)}.${e.member}`;
+      return `CAST(${exprToString(e.operand, depth + 1)} AS ${typeToString(e.to)})`;
+    case 'member': {
+      // JSON operators: data->'key', data->>'key', data->0
+      const member = typeof e.member === 'number' ? e.member : `'${String(e.member).replace(/'/g, "''")}'`;
+      return `${operandToString(e.operand, ATOM, depth)}${e.op ?? '->'}${member}`;
+    }
     case 'arrayIndex':
-      return `${exprToString(e.array, depth + 1)}[${exprToString(e.index, depth + 1)}]`;
-    case 'list':
-    case 'array': {
+      return `${operandToString(e.array, ATOM, depth)}[${exprToString(e.index, depth + 1)}]`;
+    case 'list': {
       const items = (e.expressions ?? []).map((x: any) => exprToString(x, depth + 1));
       return `(${items.join(', ')})`;
     }
-    case 'case':
-      return 'CASE…END';
+    case 'array': {
+      const items = (e.expressions ?? []).map((x: any) => exprToString(x, depth + 1));
+      return `ARRAY[${items.join(', ')}]`;
+    }
+    case 'array select':
+      return `ARRAY${exprToString(e.select, depth + 1)}`;
+    case 'extract':
+      return `EXTRACT(${String(e.field?.name ?? e.field ?? '?').toUpperCase()} FROM ${exprToString(e.from, depth + 1)})`;
+    case 'substring': {
+      const from = e.from ? ` FROM ${exprToString(e.from, depth + 1)}` : '';
+      const len = e.for ? ` FOR ${exprToString(e.for, depth + 1)}` : '';
+      return `substring(${exprToString(e.value, depth + 1)}${from}${len})`;
+    }
+    case 'overlay': {
+      const len = e.for ? ` FOR ${exprToString(e.for, depth + 1)}` : '';
+      return `overlay(${exprToString(e.value, depth + 1)} PLACING ${exprToString(e.placing, depth + 1)} FROM ${exprToString(e.from, depth + 1)}${len})`;
+    }
+    case 'default':
+      return 'DEFAULT';
+    case 'case': {
+      const sub = (x: any) => exprToString(x, depth + 1);
+      const value = e.value ? ` ${sub(e.value)}` : '';
+      const whens = (e.whens ?? []).map((w: any) => ` WHEN ${sub(w.when)} THEN ${sub(w.value)}`).join('');
+      const otherwise = e.else ? ` ELSE ${sub(e.else)}` : '';
+      return `CASE${value}${whens}${otherwise} END`;
+    }
     case 'ternary': {
       const p = precedence(e);
       return `${operandToString(e.value, p, depth)} ${e.op} ${operandToString(e.lo, p, depth)} AND ${operandToString(e.hi, p + 1, depth)}`;
@@ -172,6 +214,29 @@ function exprToString(e: any, depth = 0): string {
   return '(…)';
 }
 
+/** An identifier as it would be written: quoted when it isn't a plain lower-case name. */
+function ident(name: unknown): string {
+  const n = String(name);
+  return n === '*' || /^[a-z_][a-z0-9_$]*$/.test(n) ? n : `"${n.replace(/"/g, '""')}"`;
+}
+
+function qualifiedName(q: any): string {
+  return q?.schema ? `${q.schema}.${q?.name ?? '?'}` : String(q?.name ?? '?');
+}
+
+function typeToString(t: any): string {
+  if (!t) return '?';
+  if (t.kind === 'array') return `${typeToString(t.arrayOf)}[]`;
+  const config = t.config?.length ? `(${t.config.join(', ')})` : '';
+  return `${qualifiedName(t)}${config}`;
+}
+
+function orderItemToString(o: any, depth = 0): string {
+  const order = o.order ? ` ${o.order}` : '';
+  const nulls = o.nulls ? ` NULLS ${o.nulls}` : '';
+  return `${exprToString(o.by, depth)}${order}${nulls}`;
+}
+
 function tblName(t: any): string {
   if (!t) return '?';
   if (typeof t === 'string') return t;
@@ -179,7 +244,7 @@ function tblName(t: any): string {
     if (typeof t.name === 'string') return t.name;
     if (t.name.name) return t.name.name;
   }
-  if (t.alias) return t.alias;
+  if (t.alias) return typeof t.alias === 'string' ? t.alias : String(t.alias.name ?? '?');
   return '?';
 }
 
@@ -216,6 +281,7 @@ function generatePlainEnglish(kind: string, label: string): string {
     case 'table': {
       if (label === '(no source)') return 'No data source specified.';
       if (label.startsWith('subquery')) return 'Loads data from an inline subquery.';
+      if (/^[\w.]+\(/.test(label)) return `Loads the rows returned by ${label}.`; // a function source
       return `Loads base data from the ${label} table.`;
     }
     case 'insert_target':
@@ -709,6 +775,12 @@ function buildSelect(
         const wrapId = g.addNode(`subquery${alias}`, 'table', withFrom(g.alLoc(astLoc(src), src.alias)));
         g.addEdge(subId, wrapId, 'table');
         srcId = wrapId;
+      } else if (src.type === 'call') {
+        // A set-returning function such as generate_series(1, 10) AS s(n)
+        const aliasName = src.alias?.name;
+        const cols = src.alias?.columns?.length ? `(${src.alias.columns.map((c: any) => c.name).join(', ')})` : '';
+        const alias = aliasName ? ` AS ${aliasName}${cols}` : '';
+        srcId = g.addNode(`${exprToString(src)}${alias}`, 'table', withFrom(g.alLoc(astLoc(src), aliasName)));
       } else {
         const nameLoc = astLoc(src.name) ?? astLoc(src);
         const tblLoc = g.alLoc(nameLoc, src.name?.alias);
