@@ -96,6 +96,12 @@ const encyclopedia: Record<string, EncyclopediaEntry> = {
       'INSERT adds new rows to a table from literal VALUES or from the results of a SELECT query. It can target specific columns or use defaults.',
     docsUrl: 'https://www.postgresql.org/docs/current/sql-insert.html',
   },
+  conflict: {
+    title: 'ON CONFLICT (upsert)',
+    definition:
+      'ON CONFLICT decides what an INSERT does with a row that clashes with an existing one on a unique index or constraint: skip it (DO NOTHING) or update the existing row instead (DO UPDATE). In DO UPDATE, `excluded` refers to the row that was going to be inserted.',
+    docsUrl: 'https://www.postgresql.org/docs/current/sql-insert.html#SQL-ON-CONFLICT',
+  },
   update: {
     title: 'UPDATE',
     definition:
@@ -228,6 +234,13 @@ function generateDetailedContext(kind: string, label: string): string {
         : 'This step combines the results of two queries into one, automatically removing any duplicate rows. Both queries must produce the same number of columns.';
     case 'insert':
       return 'This step takes the incoming rows and writes them as new records into the target table.';
+    case 'conflict': {
+      const [, target = '', set] = label.match(/^ON CONFLICT(.*?) DO (?:NOTHING|UPDATE SET (.*))$/) ?? [];
+      const on = target ? `\`${target.trim()}\`` : 'any unique index or constraint';
+      return set === undefined
+        ? `Rows that clash with an existing row on ${on} are skipped, without an error; all other rows are inserted.`
+        : `Rows that clash with an existing row on ${on} aren't inserted: the existing row is updated instead, setting \`${set}\`. All other rows are inserted.`;
+    }
     case 'update': {
       const table = label.replace(/^UPDATE\s+/i, '');
       return `This step modifies existing rows in the \`${table}\` table. Only rows that passed the preceding filters will be updated.`;
