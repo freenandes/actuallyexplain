@@ -767,6 +767,7 @@ function buildSelect(
   const sourceIds: string[] = [];
 
   // FROM sources — each table/subquery is a root node
+  let skippedSelfRef = false; // the recursive CTE's own name came first in FROM
   if (ast.from) {
     for (const [i, src] of ast.from.entries()) {
       // The first source's range takes in the FROM keyword, the way WHERE, GROUP BY, … do.
@@ -774,6 +775,7 @@ function buildSelect(
       const isSelfRef = src.type === 'table' && selfRef && !src.name?.schema && tblName(src) === selfRef.selfName;
 
       if (isSelfRef && !src.join) {
+        skippedSelfRef = true; // its rows enter at the next join (or the first operation)
         continue;
       }
 
@@ -837,6 +839,9 @@ function buildSelect(
         }
 
         if (isSelfRef && selfRef) {
+          selfRef.entryNodeId = joinId;
+        } else if (skippedSelfRef && selfRef && !selfRef.entryNodeId) {
+          // `FROM t JOIN edges e`: the self-reference is the join's left side
           selfRef.entryNodeId = joinId;
         }
 
