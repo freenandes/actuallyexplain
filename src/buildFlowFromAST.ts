@@ -323,14 +323,59 @@ interface RecursiveSelfRef {
   entryNodeId: string | null;
 }
 
+interface Token {
+  start: number;
+  end: number;
+  text: string; // upper-cased word, or the punctuation character
+}
+
+/** Words, numbers and punctuation of the SQL, skipping whitespace, comments and literals. */
+function tokenize(sql: string): Token[] {
+  const tokens: Token[] = [];
+  let i = 0;
+  while (i < sql.length) {
+    const ch = sql[i];
+    let end = i + 1;
+    if (/\s/.test(ch)) {
+      i++;
+      continue;
+    } else if (sql.startsWith('--', i)) {
+      const eol = sql.indexOf('\n', i);
+      i = eol === -1 ? sql.length : eol;
+      continue;
+    } else if (sql.startsWith('/*', i)) {
+      const close = sql.indexOf('*/', i + 2);
+      i = close === -1 ? sql.length : close + 2;
+      continue;
+    } else if (ch === "'" || ch === '"') {
+      while (end < sql.length && (sql[end] !== ch || sql[end + 1] === ch)) end += sql[end] === ch ? 2 : 1;
+      end = Math.min(end + 1, sql.length);
+    } else if (/[\w$]/.test(ch)) {
+      while (end < sql.length && /[\w$]/.test(sql[end])) end++;
+    }
+    tokens.push({ start: i, end, text: sql.slice(i, end).toUpperCase() });
+    i = end;
+  }
+  return tokens;
+}
+
+/** Words that can sit between a clause keyword and the range it introduces. */
+const KEYWORD_MODIFIERS: Record<string, string[]> = {
+  SELECT: ['DISTINCT', 'ALL', 'ON'], // SELECT DISTINCT ON (…) cols
+  FROM: ['LATERAL', 'ONLY'],
+  WITH: ['RECURSIVE'],
+};
+
 class GraphBuilder {
   private nodes: RawNode[] = [];
   private edges: RawEdge[] = [];
   private idCounter = 0;
   private sql: string;
+  private tokens: Token[];
 
   constructor(sql: string) {
     this.sql = sql;
+    this.tokens = tokenize(sql);
   }
 
   addNode(label: string, kind: string, loc?: AstLoc): string {
@@ -339,15 +384,36 @@ class GraphBuilder {
     return id;
   }
 
-  /** Extend a location backwards to include a SQL keyword (e.g. WHERE, SELECT). */
+  /**
+   * Extend a location backwards to include the clause keyword that introduces it (e.g. WHERE,
+   * ORDER BY), matching tokens so line breaks and comments in between don't matter. Modifiers such
+   * as DISTINCT ON (…), and brackets the range starts inside, are stepped over.
+   */
   kwLoc(loc: AstLoc | undefined, keyword: string): AstLoc | undefined {
     if (!loc) return undefined;
-    const kw = keyword.toUpperCase();
-    const searchStart = Math.max(0, loc.start - kw.length - 20);
-    const prefix = this.sql.substring(searchStart, loc.start).toUpperCase();
-    const idx = prefix.lastIndexOf(kw);
-    if (idx >= 0) return { start: searchStart + idx, end: loc.end };
-    return loc;
+    const words = keyword.toUpperCase().split(/\s+/);
+    const modifiers = KEYWORD_MODIFIERS[words[0]] ?? [];
+    let i = this.tokens.length - 1;
+    while (i >= 0 && this.tokens[i].end > loc.start) i--; // last token before the range
+    while (i >= 0) {
+      const t = this.tokens[i].text;
+      if (modifiers.includes(t) || t === '(') {
+        i--; // a modifier, or a bracket the range starts inside: WHERE (a OR b) …
+      } else if (t === ')' && modifiers.includes('ON')) {
+        // skip the (…) of DISTINCT ON (…)
+        for (let depth = 0; i >= 0; i--) {
+          depth += this.tokens[i].text === ')' ? 1 : this.tokens[i].text === '(' ? -1 : 0;
+          if (depth === 0) break;
+        }
+        i--;
+      } else {
+        break;
+      }
+    }
+    for (let w = words.length - 1; w >= 0; w--, i--) {
+      if (i < 0 || this.tokens[i].text !== words[w]) return loc;
+    }
+    return { start: this.tokens[i + 1].start, end: loc.end };
   }
 
   /** Extend a location forward to include a table alias (e.g. users → users u). */
@@ -634,13 +700,13 @@ function buildSelect(
       } else if (src.type === 'select') {
         const subId = buildSelect(src, g, cteMap);
         const alias = src.alias?.name ? ` (${src.alias.name})` : '';
-        const wrapId = g.addNode(`subquery${alias}`, 'table', withFrom(astLoc(src)));
+        const wrapId = g.addNode(`subquery${alias}`, 'table', withFrom(g.alLoc(astLoc(src), src.alias?.name)));
         g.addEdge(subId, wrapId, 'table');
         srcId = wrapId;
       } else if (src.type === 'statement' && src.statement) {
         const subId = dispatchBuild(src.statement, g, cteMap);
         const alias = src.alias ? ` (${src.alias})` : '';
-        const wrapId = g.addNode(`subquery${alias}`, 'table', withFrom(astLoc(src)));
+        const wrapId = g.addNode(`subquery${alias}`, 'table', withFrom(g.alLoc(astLoc(src), src.alias)));
         g.addEdge(subId, wrapId, 'table');
         srcId = wrapId;
       } else {
@@ -691,7 +757,9 @@ function buildSelect(
   } else if (sourceIds.length === 1) {
     currentId = sourceIds[0];
   } else {
-    const mergeId = g.addNode('CROSS JOIN', 'join');
+    const last = ast.from[ast.from.length - 1];
+    const lastAlias = typeof last.alias === 'string' ? last.alias : last.alias?.name ?? last.name?.alias;
+    const mergeId = g.addNode('CROSS JOIN', 'join', g.kwLoc(g.alLoc(spanLoc(ast.from), lastAlias), 'FROM'));
     for (const sid of sourceIds) {
       g.addEdge(sid, mergeId, 'join');
     }
