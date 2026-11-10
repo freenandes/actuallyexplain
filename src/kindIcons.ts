@@ -33,6 +33,7 @@ export const kindIcons: Record<string, LucideIcon> = {
   orderby: ArrowUpDown,
   limit: Scissors,
   cte: Repeat2,
+  cte_ref: Repeat2,
   union: SquaresUnite,
   values: Braces,
   insert: BetweenHorizonalStart,
