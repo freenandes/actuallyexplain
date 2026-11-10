@@ -93,6 +93,29 @@ h2.sqlFlavor {
 .editorWrapper {
   flex: 1;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.editorNote {
+  font-size: 0.875rem;
+  padding: 0.5rem 1rem;
+  color: var(--tx-2);
+  background-color: var(--bg-2);
+}
+
+.fallbackEditor {
+  flex: 1;
+  width: 100%;
+  resize: none;
+  border: none;
+  outline: none;
+  padding: 12px 16px;
+  background: var(--bg);
+  color: var(--tx);
+  font-family: 'Martian Mono', monospace;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 /* ─── Right Pane: Flow Canvas ─── */
