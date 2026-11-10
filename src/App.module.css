@@ -103,6 +103,32 @@ h2.sqlFlavor {
   background-color: var(--bg);
 }
 
+/* The SQL no longer parses: the diagram still shows the last valid query, dimmed and inert. */
+.flowPane[data-stale="true"] :global(.react-flow__node),
+.flowPane[data-stale="true"] :global(.react-flow__edge) {
+  opacity: 0.35;
+  pointer-events: none !important; /* React Flow sets pointer-events inline */
+}
+
+.staleBanner {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  right: 0.75rem;
+  z-index: 20;
+  font-size: 0.875rem;
+  padding: 0.5rem 1rem;
+  color: var(--re);
+  background-color: color-mix(in srgb, var(--re) 20%, var(--bg));
+  border-radius: var(--br-md);
+  animation: fadeIn 0.2s ease-in;
+}
+
+.staleBanner[data-stale="false"],
+.staleBannerError {
+  display: none;
+}
+
 .flowWrapper {
   position: absolute;
   inset: 0;
@@ -197,6 +223,14 @@ h2.sqlFlavor {
 
   .container[data-mobile-view="diagram"] .editorPane {
     display: none;
+  }
+
+  .staleBanner[data-stale="false"] {
+    display: block;
+  }
+
+  .staleBannerError {
+    display: inline;
   }
 
   .mobileNav {
