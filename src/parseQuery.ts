@@ -13,9 +13,15 @@ const QUOTES: Record<string, string> = {
  * zero-width characters are dropped. String literals, quoted identifiers and comments are kept
  * exactly as written. Some fixes change the text's length, so `editorOffset[i]` records where
  * cleaned character i came from in the editor, keeping node ↔ code highlights aligned.
+ * `masked` is the cleaned text with literals and comments blanked, for keyword searches, and
  * `recursiveAt` lists where each `WITH RECURSIVE` keyword starts in the cleaned text.
  */
-export function sanitizeInput(raw: string): { text: string; editorOffset: number[]; recursiveAt: number[] } {
+export function sanitizeInput(raw: string): {
+  text: string;
+  masked: string;
+  editorOffset: number[];
+  recursiveAt: number[];
+} {
   let text = '';
   let code = ''; // `text` with literals and comments blanked, for keyword searches
   const editorOffset: number[] = [];
@@ -80,7 +86,12 @@ export function sanitizeInput(raw: string): { text: string; editorOffset: number
   const end = text.trimEnd().length;
   const recursiveAt = [...code.matchAll(/\bWITH\s+RECURSIVE\b/gi)]
     .map((m) => m.index + m[0].length - 'RECURSIVE'.length - start);
-  return { text: text.slice(start, end), editorOffset: editorOffset.slice(start, end), recursiveAt };
+  return {
+    text: text.slice(start, end),
+    masked: code.slice(start, end),
+    editorOffset: editorOffset.slice(start, end),
+    recursiveAt,
+  };
 }
 
 /**
@@ -119,7 +130,7 @@ function shortenError(msg: string): string {
 
 /** Parses SQL into a diagram. `graph` is null when parsing fails, so the last good diagram stays up. */
 export function parseToGraph(raw: string): { graph: { nodes: Node[]; edges: Edge[] } | null; error: string | null } {
-  const { text: input, editorOffset, recursiveAt } = sanitizeInput(raw);
+  const { text: input, masked, editorOffset, recursiveAt } = sanitizeInput(raw);
   if (!input) return { graph: { nodes: [], edges: [] }, error: null };
 
   try {
@@ -132,21 +143,66 @@ export function parseToGraph(raw: string): { graph: { nodes: Node[]; edges: Edge
     }
     return { graph, error: null };
   } catch (err) {
-    return { graph: null, error: parseErrorMessage(raw, input, err) };
+    return { graph: null, error: parseErrorMessage(masked, err) };
   }
 }
 
-function parseErrorMessage(raw: string, input: string, err: unknown): string {
-  if (/\bWITH\b[\s\S]*?\b\w+\s*\([^)]+\)\s*\bAS\b/i.test(raw)) {
-    return 'Explicit CTE column lists (e.g., CTE_Name (col1, col2)) are not currently supported by our parser. Try aliasing your columns directly inside the SELECT statement instead!';
-  } else if (/\bNATURAL\s+JOIN\b/i.test(input)) {
-    return 'NATURAL JOIN is not currently supported by our parsing engine. Please use an explicit JOIN with an ON or USING clause.';
-  } else if (/^\s*(GRANT|REVOKE)\b/i.test(raw)) {
+const unsupported = (feature: string, hint = '') =>
+  `This query uses ${feature}, which is valid PostgreSQL but not supported yet by the parser behind actuallyEXPLAIN, so it can't be visualized.${hint ? ` ${hint}` : ''}`;
+
+/**
+ * Valid PostgreSQL that pgsql-ast-parser rejects. A pattern explains a parse error only when the
+ * parser stopped inside its match; otherwise the error is somewhere else.
+ */
+const UNSUPPORTED: { pattern: RegExp; message: string }[] = [
+  {
+    pattern: /(?:\bWITH\s+(?:RECURSIVE\s+)?|,\s*)"?[\w$]+"?\s*\([^()]*\)\s*AS\s*(?:NOT\s+)?(?:MATERIALIZED\s*)?\(/gi,
+    message: 'Explicit CTE column lists (e.g., CTE_Name (col1, col2)) are not currently supported by our parser. Try aliasing your columns directly inside the SELECT statement instead!',
+  },
+  {
+    pattern: /\bNATURAL\s+(?:(?:LEFT|RIGHT|FULL)\s+(?:OUTER\s+)?|INNER\s+)?JOIN\b/gi,
+    message: 'NATURAL JOIN is not currently supported by our parsing engine. Please use an explicit JOIN with an ON or USING clause.',
+  },
+  {
+    pattern: /\bOVER\s+(?!\()[A-Za-z_]\w*|\bWINDOW\s+[A-Za-z_]\w*\s+AS\b/gi,
+    message: unsupported('a named window (WINDOW w AS (…) with OVER w)', 'Write the window definition inside OVER (…) instead.'),
+  },
+  {
+    pattern: /\b(?:ROWS|RANGE|GROUPS)\s+(?:BETWEEN|UNBOUNDED|CURRENT\s+ROW|\d+\s+(?:PRECEDING|FOLLOWING))/gi,
+    message: unsupported('a window frame (ROWS / RANGE / GROUPS …)'),
+  },
+  { pattern: /\bGROUPING\s+SETS\b/gi, message: unsupported('GROUPING SETS', 'ROLLUP and CUBE are supported.') },
+  { pattern: /\bIS\s+(?:NOT\s+)?DISTINCT\s+FROM\b/gi, message: unsupported('IS [NOT] DISTINCT FROM') },
+  { pattern: /\b(?:INTERSECT|EXCEPT)\b/gi, message: unsupported('INTERSECT or EXCEPT', 'Try rewriting it with EXISTS / NOT EXISTS.') },
+  { pattern: /\bWITH\s+TIES\b/gi, message: unsupported('FETCH … WITH TIES') },
+];
+
+/** Where a parse error happened, as an offset into the parsed text (from "line L col C"). */
+function errorOffset(text: string, err: unknown): number | null {
+  const m = /line (\d+) col (\d+)/.exec(extractErrorMessage(err));
+  if (!m) return null;
+  const lines = text.split('\n');
+  let offset = 0;
+  for (let i = 0; i < Number(m[1]) - 1 && i < lines.length; i++) offset += lines[i].length + 1;
+  return offset + Number(m[2]) - 1;
+}
+
+/** `masked` is the parsed text with literals and comments blanked, so keywords inside them don't count. */
+function parseErrorMessage(masked: string, err: unknown): string {
+  if (/^\s*(GRANT|REVOKE)\b/i.test(masked)) {
     return 'Data Control Language (DCL) statements like GRANT and REVOKE are not currently supported for visualization. Try visualizing a SELECT, INSERT, or CREATE statement instead!';
-  } else if (/^\s*(CREATE|DROP)\s+(ROLE|USER)\b/i.test(raw)) {
+  } else if (/^\s*(CREATE|DROP)\s+(ROLE|USER)\b/i.test(masked)) {
     return 'Administrative commands (like CREATE ROLE or CREATE USER) are not currently supported for visualization. Try visualizing a table definition or data query instead!';
-  } else if (/^\s*EXPLAIN\b/i.test(raw)) {
+  } else if (/^\s*EXPLAIN\b/i.test(masked)) {
     return 'actuallyEXPLAIN visualizes the logical intent of raw SQL, not physical database execution plans. Please remove the EXPLAIN keyword and any text output, and just paste your raw query!';
+  }
+  const at = errorOffset(masked, err);
+  if (at !== null) {
+    for (const { pattern, message } of UNSUPPORTED) {
+      for (const m of masked.matchAll(pattern)) {
+        if (at >= m.index && at <= m.index + m[0].length + 2) return message;
+      }
+    }
   }
   const message = extractErrorMessage(err);
   console.warn('[SQL Parse Error]', message);
