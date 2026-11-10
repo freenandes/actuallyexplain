@@ -294,6 +294,7 @@ function generatePlainEnglish(kind: string, label: string): string {
   switch (kind) {
     case 'table': {
       if (label === '(no source)') return 'No data source specified.';
+      if (label.startsWith('LATERAL ')) return `Runs ${label.slice(8)} once for each row of the sources before it, using their columns.`;
       if (label.startsWith('subquery')) return 'Loads data from an inline subquery.';
       if (/^[\w.]+\(/.test(label)) return `Loads the rows returned by ${label}.`; // a function source
       return `Loads base data from the ${label} table.`;
@@ -312,7 +313,9 @@ function generatePlainEnglish(kind: string, label: string): string {
       if (label.includes('NATURAL')) return 'NATURAL JOIN: Implicitly joins tables using all columns with matching names.';
       if (label.includes('CROSS')) return 'Combines every row with every other row.';
       const onMatch = label.match(/ON\s+(.+)/i);
+      const using = label.match(/ USING \((.+)\)$/);
       const joinType = label.match(/^(\w+\s+JOIN)/i)?.[1] ?? 'JOIN';
+      if (using) return `${joinType}: matches rows with equal ${using[1]}; each of those columns appears once.`;
       return onMatch
         ? `${joinType}: matches where ${onMatch[1]}.`
         : 'Joins with another data source.';
@@ -684,53 +687,6 @@ class GraphBuilder {
   }
 }
 
-// ── Recursively find CTE references inside any expression (subqueries in WHERE, HAVING, etc.) ──
-
-function collectCteRefsInExpr(
-  expr: any,
-  cteMap: Map<string, string>,
-  found: Set<string>,
-) {
-  if (!expr || typeof expr !== 'object') return;
-
-  // A nested SELECT — check its FROM for CTE references
-  if (expr.type === 'select' && expr.from) {
-    for (const src of expr.from) {
-      const cteRef = cteRefOf(src, cteMap);
-      if (cteRef) found.add(cteRef);
-      // Also recurse into join ON clauses
-      if (src.join?.on) collectCteRefsInExpr(src.join.on, cteMap, found);
-    }
-    // Recurse into the subquery's own WHERE / HAVING
-    if (expr.where) collectCteRefsInExpr(expr.where, cteMap, found);
-    if (expr.having) collectCteRefsInExpr(expr.having, cteMap, found);
-    return;
-  }
-
-  // Walk all object values recursively
-  for (const val of Object.values(expr)) {
-    if (Array.isArray(val)) {
-      for (const item of val) collectCteRefsInExpr(item, cteMap, found);
-    } else if (val && typeof val === 'object') {
-      collectCteRefsInExpr(val, cteMap, found);
-    }
-  }
-}
-
-function linkCteRefsToNode(
-  expr: any,
-  cteMap: Map<string, string>,
-  targetNodeId: string,
-  g: GraphBuilder,
-) {
-  if (cteMap.size === 0) return;
-  const refs = new Set<string>();
-  collectCteRefsInExpr(expr, cteMap, refs);
-  for (const cteNodeId of refs) {
-    g.addEdge(cteNodeId, targetNodeId, 'cte');
-  }
-}
-
 // ── Recursively find & build subquery sub-graphs inside any expression ──
 
 function buildSubqueriesInExpr(
@@ -738,20 +694,21 @@ function buildSubqueriesInExpr(
   g: GraphBuilder,
   cteMap: Map<string, string>,
   parentNodeId: string,
+  edgeKind = 'where',
 ) {
   if (!expr || typeof expr !== 'object') return;
 
   if (expr.type === 'select') {
     const subOutputId = buildSelect(expr, g, cteMap);
-    g.addEdge(subOutputId, parentNodeId, 'where');
+    g.addEdge(subOutputId, parentNodeId, edgeKind);
     return;
   }
 
   for (const val of Object.values(expr)) {
     if (Array.isArray(val)) {
-      for (const item of val) buildSubqueriesInExpr(item, g, cteMap, parentNodeId);
+      for (const item of val) buildSubqueriesInExpr(item, g, cteMap, parentNodeId, edgeKind);
     } else if (val && typeof val === 'object') {
-      buildSubqueriesInExpr(val, g, cteMap, parentNodeId);
+      buildSubqueriesInExpr(val, g, cteMap, parentNodeId, edgeKind);
     }
   }
 }
@@ -798,13 +755,13 @@ function buildSelect(
       } else if (src.type === 'select') {
         const subId = buildSelect(src, g, cteMap);
         const alias = src.alias?.name ? ` (${src.alias.name})` : '';
-        const wrapId = g.addNode(`subquery${alias}`, 'table', withFrom(g.alLoc(astLoc(src), src.alias?.name)));
+        const wrapId = g.addNode(`${src.lateral ? 'LATERAL ' : ''}subquery${alias}`, 'table', withFrom(g.alLoc(astLoc(src), src.alias?.name)));
         g.addEdge(subId, wrapId, 'table');
         srcId = wrapId;
       } else if (src.type === 'statement' && src.statement) {
         const subId = dispatchBuild(src.statement, g, cteMap);
         const alias = src.alias ? ` (${src.alias})` : '';
-        const wrapId = g.addNode(`subquery${alias}`, 'table', withFrom(g.alLoc(astLoc(src), src.alias)));
+        const wrapId = g.addNode(`${src.lateral ? 'LATERAL ' : ''}subquery${alias}`, 'table', withFrom(g.alLoc(astLoc(src), src.alias)));
         g.addEdge(subId, wrapId, 'table');
         srcId = wrapId;
       } else if (src.type === 'call') {
@@ -812,18 +769,22 @@ function buildSelect(
         const aliasName = src.alias?.name;
         const cols = src.alias?.columns?.length ? `(${src.alias.columns.map((c: any) => c.name).join(', ')})` : '';
         const alias = aliasName ? ` AS ${aliasName}${cols}` : '';
-        srcId = g.addNode(`${exprToString(src)}${alias}`, 'table', withFrom(g.alLoc(astLoc(src), aliasName)));
+        srcId = g.addNode(`${src.lateral ? 'LATERAL ' : ''}${exprToString(src)}${alias}`, 'table', withFrom(g.alLoc(astLoc(src), aliasName)));
       } else {
         const nameLoc = astLoc(src.name) ?? astLoc(src);
         const tblLoc = g.alLoc(nameLoc, src.name?.alias);
         srcId = g.addNode(`${tblName(src)}`, 'table', withFrom(tblLoc));
       }
 
+      // LATERAL runs once per row of the sources before it, so it depends on them
+      if (src.lateral && sourceIds.length > 0) g.addEdge(sourceIds[sourceIds.length - 1], srcId, 'join');
+
       if (src.join) {
         const isNatural = src.join.natural || /^NATURAL\b/i.test(src.join.type ?? '');
         const joinType = src.join.type ?? 'JOIN';
         const onClause = !isNatural && src.join.on ? ` ON ${exprToString(src.join.on)}` : '';
-        const joinId = g.addNode(`${joinType}${onClause}`, 'join', astLoc(src));
+        const using = src.join.using?.length ? ` USING (${src.join.using.map((u: any) => ident(u.name ?? u)).join(', ')})` : '';
+        const joinId = g.addNode(`${joinType}${onClause}${using}`, 'join', astLoc(src));
 
         // Left side: the accumulated result so far
         if (sourceIds.length > 0) {
@@ -846,7 +807,8 @@ function buildSelect(
         }
 
         // CTE refs in ON conditions
-        if (src.join.on) linkCteRefsToNode(src.join.on, cteMap, joinId, g);
+        // Subqueries in the ON condition feed the join
+        if (src.join.on) buildSubqueriesInExpr(src.join.on, g, cteMap, joinId, 'join');
       } else {
         sourceIds.push(srcId);
       }

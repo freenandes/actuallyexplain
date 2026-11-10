@@ -156,6 +156,8 @@ function generateDetailedContext(kind: string, label: string): string {
   switch (kind) {
     case 'table': {
       if (label === '(no source)') return 'No explicit data source is specified. The query generates data without reading from a table.';
+      if (label.startsWith('LATERAL '))
+        return `This step runs \`${label.slice(8)}\` once for each row coming from the sources before it in FROM, and can use their columns — like a loop over those rows. Its results are joined to the row that produced them.`;
       if (label.startsWith('subquery'))
         return 'This step loads data from an inline subquery — a full query nested inside the FROM clause that acts as a virtual table.';
       if (/^[\w.]+\(/.test(label))
@@ -175,7 +177,10 @@ function generateDetailedContext(kind: string, label: string): string {
       if (label.includes('CROSS'))
         return 'This step produces a Cartesian product — every row from the left source is paired with every row from the right source. The result set can be very large.';
       const onMatch = label.match(/ON\s+(.+)/i);
+      const using = label.match(/ USING \((.+)\)$/);
       const joinType = label.match(/^(\w+\s+JOIN)/i)?.[1] ?? 'JOIN';
+      if (using)
+        return `This \`${joinType}\` combines rows from two tables where \`${using[1]}\` is equal in both. Each column listed in USING appears only once in the result instead of once per table.`;
       if (onMatch)
         return `This \`${joinType}\` combines rows from two tables, matching them where \`${onMatch[1]}\`. Rows without a match are handled according to the join type.`;
       return 'This step combines rows from two data sources based on a matching condition.';
