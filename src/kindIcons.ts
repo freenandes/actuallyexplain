@@ -19,6 +19,7 @@ import {
   Cog,
   Replace,
   SquareDashedMousePointer,
+  GitMergeConflict,
 } from 'lucide-react';
 
 /** Icon for each node kind, shared by the diagram nodes and the details panel. */
@@ -37,6 +38,7 @@ export const kindIcons: Record<string, LucideIcon> = {
   union: SquaresUnite,
   values: Braces,
   insert: BetweenHorizonalStart,
+  conflict: GitMergeConflict,
   update: SquarePen,
   delete: Trash2,
   create: SquarePlus,

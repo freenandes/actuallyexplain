@@ -22,6 +22,7 @@ const nodeColors: Record<string, string> = {
   update: '#DA702C',
   set: '#D0A215',
   insert: '#DA702C',
+  conflict: '#DA702C',
   values: '#8B7EC8',
   delete: '#D14D41',
   create: '#879A39',
@@ -362,6 +363,16 @@ function generatePlainEnglish(kind: string, label: string): string {
     }
     case 'insert':
       return 'Inserts the processed rows into the target.';
+    case 'conflict': {
+      const [, target = '', set] = label.match(/^ON CONFLICT(.*?) DO (?:NOTHING|UPDATE SET (.*))$/) ?? [];
+      const clash = target.startsWith(' ON CONSTRAINT ')
+        ? `would break the ${target.slice(15)} constraint`
+        : target ? `has the same ${target.trim().slice(1, -1)} as an existing row` : 'would break a unique constraint';
+      if (set === undefined) return `Skips any row that ${clash}, instead of inserting it.`;
+      const where = set.lastIndexOf(' WHERE ');
+      const sets = where === -1 ? set : `${set.slice(0, where)}, only where ${set.slice(where + 7)}`;
+      return `When a row ${clash}, updates that existing row instead: sets ${sets}.`;
+    }
     case 'update': {
       const table = label.replace(/^UPDATE\s+/i, '');
       return `Updates matched rows in ${table}.`;
@@ -554,6 +565,20 @@ class GraphBuilder {
       end += m[0].length;
     }
     return { start: loc.start, end };
+  }
+
+  /**
+   * A clause's range, by tokens: from the first `start` keywords after the statement begins, to just
+   * before the next `stop` keyword or `;`. (The parser's own ranges for some clauses stop early.)
+   */
+  clauseLoc(stmt: AstLoc | undefined, start: string[], stop: string[]): AstLoc | undefined {
+    if (!stmt) return undefined;
+    const toks = this.tokens.filter((t) => t.start >= stmt.start);
+    const i = toks.findIndex((_, k) => start.every((w, j) => toks[k + j]?.text === w));
+    if (i < 0) return undefined;
+    let j = i + start.length;
+    while (j < toks.length && toks[j].text !== ';' && !stop.includes(toks[j].text)) j++;
+    return { start: toks[i].start, end: toks[j - 1].end };
   }
 
   /** Whether the SQL at this location starts with `(`, i.e. the node was written in brackets. */
@@ -908,14 +933,20 @@ function buildSelect(
 
 function buildUpdate(ast: AST, g: GraphBuilder, cteMap: Map<string, string>): string {
   const tableName = tblName(ast.table ?? ast);
-  const tblId = g.addNode(`${tableName}`, 'table', astLoc(ast.table));
-  let currentId = tblId;
+  let currentId: string;
 
-  if (ast.where) {
-    const wId = g.addNode(`WHERE ${exprToString(ast.where)}`, 'where', g.kwLoc(astLoc(ast.where), 'WHERE'));
-    g.addEdge(currentId, wId, 'where');
-    buildSubqueriesInExpr(ast.where, g, cteMap, wId);
-    currentId = wId;
+  if (ast.from) {
+    // UPDATE … FROM joins another source to the target table; WHERE says how their rows match.
+    const target = { type: 'table', name: ast.table }; // no range of its own: the name's is used
+    currentId = buildSelect({ type: 'select', from: [target, ...[ast.from].flat()], where: ast.where }, g, cteMap);
+  } else {
+    currentId = g.addNode(`${tableName}`, 'table', astLoc(ast.table));
+    if (ast.where) {
+      const wId = g.addNode(`WHERE ${exprToString(ast.where)}`, 'where', g.kwLoc(astLoc(ast.where), 'WHERE'));
+      g.addEdge(currentId, wId, 'where');
+      buildSubqueriesInExpr(ast.where, g, cteMap, wId);
+      currentId = wId;
+    }
   }
 
   if (ast.sets && ast.sets.length > 0) {
@@ -956,8 +987,8 @@ function buildInsert(ast: AST, g: GraphBuilder, cteMap: Map<string, string>): st
         .join(', ');
       const suffix = rowCount > 1 ? ` (+${rowCount - 1} more)` : '';
       currentId = g.addNode(`VALUES (${preview})${suffix}`, 'values', g.kwLoc(astLoc(ast.insert), 'VALUES'));
-    } else if (ast.insert.type === 'select') {
-      currentId = buildSelect(ast.insert, g, cteMap);
+    } else {
+      currentId = dispatchBuild(ast.insert, g, cteMap); // SELECT, UNION, WITH, …
     }
   }
 
@@ -971,6 +1002,20 @@ function buildInsert(ast: AST, g: GraphBuilder, cteMap: Map<string, string>): st
   const insId = g.addNode('INSERT', 'insert', astLoc(ast));
   if (currentId) g.addEdge(currentId, insId, 'insert');
   currentId = insId;
+
+  if (ast.onConflict) {
+    // Upsert: rows that clash with an existing one are skipped or update it instead
+    const c = ast.onConflict;
+    const target = c.on?.type === 'on constraint'
+      ? ` ON CONSTRAINT ${qualifiedName(c.on.constraint)}`
+      : c.on?.exprs?.length ? ` (${c.on.exprs.map((e: any) => exprToString(e)).join(', ')})` : '';
+    const action = c.do === 'do nothing'
+      ? 'DO NOTHING'
+      : `DO UPDATE SET ${(c.do?.sets ?? []).map((st: any) => `${st.column?.name ?? st.column} = ${exprToString(st.value)}`).join(', ')}${c.where ? ` WHERE ${exprToString(c.where)}` : ''}`;
+    const conflictId = g.addNode(`ON CONFLICT${target} ${action}`, 'conflict', g.clauseLoc(astLoc(ast), ['ON', 'CONFLICT'], ['RETURNING']));
+    g.addEdge(currentId, conflictId, 'conflict');
+    currentId = conflictId;
+  }
 
   const tblId = g.addNode(`${tblName(ast.into ?? ast)}`, 'insert_target', astLoc(ast.into));
   g.addEdge(currentId, tblId, 'insert');
