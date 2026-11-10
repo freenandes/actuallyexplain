@@ -237,6 +237,14 @@ function orderItemToString(o: any, depth = 0): string {
   return `${exprToString(o.by, depth)}${order}${nulls}`;
 }
 
+/** `LIMIT n`, `OFFSET m` or `LIMIT n OFFSET m`: OFFSET alone skips rows without capping them. */
+function limitLabel(limit: any): string {
+  const parts = [];
+  if (limit.limit) parts.push(`LIMIT ${exprToString(limit.limit)}`);
+  if (limit.offset) parts.push(`OFFSET ${exprToString(limit.offset)}`);
+  return parts.join(' ');
+}
+
 function tblName(t: any): string {
   if (!t) return '?';
   if (typeof t === 'string') return t;
@@ -304,6 +312,10 @@ function generatePlainEnglish(kind: string, label: string): string {
         : 'Joins with another data source.';
     }
     case 'select':
+      if (label.startsWith('SELECT DISTINCT ON ('))
+        return 'Keeps only the first row for each distinct value of the DISTINCT ON expressions, then selects the output columns.';
+      if (label.startsWith('SELECT DISTINCT '))
+        return 'Selects the output columns and removes duplicate rows.';
       return 'Selects and formats the output columns.';
     case 'groupby': {
       const cols = label.replace(/^GROUP BY\s+/i, '');
@@ -314,8 +326,12 @@ function generatePlainEnglish(kind: string, label: string): string {
       return `Sorts the results by ${cols}.`;
     }
     case 'limit': {
-      const val = label.replace(/^LIMIT\s+/i, '');
-      return `Limits output to ${val} rows.`;
+      const limit = label.match(/^LIMIT (.+?)(?: OFFSET |$)/)?.[1];
+      const offset = label.match(/OFFSET (.+)$/)?.[1];
+      const rows = (n: string) => `${n} row${n === '1' ? '' : 's'}`;
+      if (offset && limit) return `Skips the first ${rows(offset)}, then limits output to ${rows(limit)}.`;
+      if (offset) return `Skips the first ${rows(offset)}.`;
+      return `Limits output to ${rows(limit ?? '?')}.`;
     }
     case 'cte': {
       const name = label.replace(/^(CTE|RECURSIVE):\s*/i, '');
@@ -873,7 +889,12 @@ function buildSelect(
         return c.alias?.name ? `${expr} AS ${c.alias.name}` : expr;
       })
       .join(', ');
-    const selId = g.addNode(`SELECT ${cols}`, 'select', g.kwLoc(spanLoc(ast.columns), 'SELECT'));
+    const distinct = ast.distinct === 'distinct'
+      ? 'DISTINCT '
+      : Array.isArray(ast.distinct)
+        ? `DISTINCT ON (${ast.distinct.map((d: any) => exprToString(d)).join(', ')}) `
+        : '';
+    const selId = g.addNode(`SELECT ${distinct}${cols}`, 'select', g.kwLoc(spanLoc(ast.columns), 'SELECT'));
     if (currentId) g.addEdge(currentId, selId, 'select');
     for (const c of ast.columns) {
       buildSubqueriesInExpr(c.expr, g, cteMap, selId);
@@ -885,7 +906,7 @@ function buildSelect(
   // ORDER BY
   if (ast.orderBy && ast.orderBy.length > 0) {
     const parts = ast.orderBy
-      .map((o: any) => `${exprToString(o.by)} ${o.order ?? 'ASC'}`)
+      .map((o: any) => orderItemToString({ ...o, order: o.order ?? 'ASC' }))
       .join(', ');
     const obId = g.addNode(`ORDER BY ${parts}`, 'orderby', g.kwLoc(spanLoc(ast.orderBy), 'ORDER BY'));
     if (currentId) g.addEdge(currentId, obId, 'orderby');
@@ -895,9 +916,7 @@ function buildSelect(
 
   // LIMIT
   if (ast.limit) {
-    const val = ast.limit.limit ? exprToString(ast.limit.limit) : '';
-    const off = ast.limit.offset ? ` OFFSET ${exprToString(ast.limit.offset)}` : '';
-    const limId = g.addNode(`LIMIT ${val}${off}`, 'limit', g.kwLoc(astLoc(ast.limit), 'LIMIT'));
+    const limId = g.addNode(limitLabel(ast.limit), 'limit', g.kwLoc(astLoc(ast.limit), ast.limit.limit ? 'LIMIT' : 'OFFSET'));
     if (currentId) g.addEdge(currentId, limId, 'limit');
     if (selfRef && !selfRef.entryNodeId) selfRef.entryNodeId = limId;
     currentId = limId;
@@ -1194,7 +1213,7 @@ function buildUnion(ast: AST, g: GraphBuilder, cteMap: Map<string, string>): str
   const orderBy = ast.orderBy ?? trailingOrderBy;
   if (orderBy && orderBy.length > 0) {
     const parts = orderBy
-      .map((o: any) => `${exprToString(o.by)} ${o.order ?? 'ASC'}`)
+      .map((o: any) => orderItemToString({ ...o, order: o.order ?? 'ASC' }))
       .join(', ');
     const obId = g.addNode(`ORDER BY ${parts}`, 'orderby', g.kwLoc(spanLoc(orderBy), 'ORDER BY'));
     g.addEdge(currentId, obId, 'orderby');
@@ -1203,9 +1222,7 @@ function buildUnion(ast: AST, g: GraphBuilder, cteMap: Map<string, string>): str
 
   const limit = ast.limit ?? trailingLimit;
   if (limit) {
-    const val = limit.limit ? exprToString(limit.limit) : '';
-    const off = limit.offset ? ` OFFSET ${exprToString(limit.offset)}` : '';
-    const limId = g.addNode(`LIMIT ${val}${off}`, 'limit', g.kwLoc(astLoc(limit), 'LIMIT'));
+    const limId = g.addNode(limitLabel(limit), 'limit', g.kwLoc(astLoc(limit), limit.limit ? 'LIMIT' : 'OFFSET'));
     g.addEdge(currentId, limId, 'limit');
     currentId = limId;
   }
