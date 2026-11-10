@@ -16,7 +16,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { parseToGraph } from './parseQuery';
-import Editor, { type OnMount } from '@monaco-editor/react';
+import Editor, { loader, type OnMount } from '@monaco-editor/react';
 import type * as Monaco from 'monaco-editor';
 import { Analytics } from '@vercel/analytics/react';
 import { CircleQuestionMark, Code2, Workflow } from 'lucide-react';
@@ -42,6 +42,19 @@ ORDER BY o.total DESC;`;
 
 const DEBOUNCE_MS = 300;
 const PANEL_CLOSE_MS = 400;
+// The code editor (Monaco) loads from a CDN. Show the app without it after a few seconds, and fall
+// back to a plain text box if it fails or never arrives.
+const REVEAL_WITHOUT_EDITOR_MS = 4000;
+const EDITOR_GIVE_UP_MS = 20000;
+
+/** Fades out the full-page loader in index.html. */
+function hidePageLoader() {
+  const pageLoader = document.getElementById('app-loader');
+  if (pageLoader) {
+    pageLoader.classList.add('hiding');
+    pageLoader.addEventListener('transitionend', () => pageLoader.remove());
+  }
+}
 
 /**
  * The node for a code selection: the smallest node whose range contains all of it. When no node
@@ -80,6 +93,7 @@ function AppInner() {
   const [isClosingPanel, setIsClosingPanel] = useState(false);
   const [mobileView, setMobileView] = useState<'editor' | 'diagram'>('editor');
   const [appReady, setAppReady] = useState(false);
+  const [editorFailed, setEditorFailed] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
   const [isClosingAbout, setIsClosingAbout] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -173,6 +187,29 @@ function AppInner() {
     }
     setParseError(error);
   }, [clearHighlight]);
+
+  // Don't let the editor hold the whole app hostage: the diagram is ready from the first render.
+  useEffect(() => {
+    const reveal = setTimeout(() => {
+      setAppReady(true);
+      hidePageLoader();
+    }, REVEAL_WITHOUT_EDITOR_MS);
+    const fail = () => {
+      setEditorFailed(true);
+      setAppReady(true);
+      hidePageLoader();
+    };
+    const giveUp = setTimeout(() => {
+      if (!editorRef.current) fail();
+    }, EDITOR_GIVE_UP_MS);
+    loader.init().catch((err) => {
+      if (err?.type !== 'cancelation') fail();
+    });
+    return () => {
+      clearTimeout(reveal);
+      clearTimeout(giveUp);
+    };
+  }, []);
 
   const prevNodeCount = useRef(0);
   useEffect(() => {
@@ -271,11 +308,7 @@ function AppInner() {
       requestAnimationFrame(() => {
         setTimeout(() => {
           setAppReady(true);
-          const loader = document.getElementById('app-loader');
-          if (loader) {
-            loader.classList.add('hiding');
-            loader.addEventListener('transitionend', () => loader.remove());
-          }
+          hidePageLoader();
         }, 50);
       });
     });
@@ -438,6 +471,20 @@ function AppInner() {
           </div>
         )}
         <div className={styles.editorWrapper}>
+          {editorFailed ? (
+            <>
+              <p className={styles.editorNote}>
+                The code editor couldn't load, so this is a plain text box. The diagram still updates as you type.
+              </p>
+              <textarea
+                className={styles.fallbackEditor}
+                defaultValue={DEFAULT_SQL}
+                onChange={(e) => handleChange(e.target.value)}
+                spellCheck={false}
+                aria-label="SQL query"
+              />
+            </>
+          ) : (
           <Editor
             defaultLanguage="sql"
             defaultValue={DEFAULT_SQL}
@@ -464,6 +511,7 @@ function AppInner() {
               find: { addExtraSpaceOnTop: false, seedSearchStringFromSelection: 'never' },
             }}
           />
+          )}
         </div>
       </aside>
 
