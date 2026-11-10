@@ -491,6 +491,7 @@ function AppInner() {
               colorMode="dark"
               edgesFocusable={false}
               deleteKeyCode={null} // the diagram is derived from the SQL; nothing can be removed from it
+              minZoom={0.1} // the default 0.5 can't fit a moderately complex query, so Fit View clipped it
               elementsSelectable={!isStale}
               nodesFocusable={!isStale}
               edgesReconnectable={false}
