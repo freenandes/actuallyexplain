@@ -258,7 +258,7 @@ function AppInner() {
     });
   }, [highlightRange, clearHighlight, revealNode]);
 
-  const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
+  const handleNodeClick = useCallback((_: unknown, node: Node) => {
     if (staleRef.current) return;
     if (closePanelTimeoutRef.current) {
       clearTimeout(closePanelTimeoutRef.current);
@@ -289,6 +289,17 @@ function AppInner() {
       requestAnimationFrame(() => { suppressCursorRef.current = false; });
     }
   }, [highlightRange]);
+
+  // React Flow selects a focused node on Enter / Space without calling onNodeClick, so keyboard
+  // selection gets the same code highlight and details-panel behaviour as a click.
+  const handleFlowKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const target = e.target as HTMLElement;
+    if (target.closest('button')) return; // the node's info button handles its own keys
+    const id = target.closest('.react-flow__node')?.getAttribute('data-id');
+    const node = id ? nodesRef.current.find((n) => n.id === id) : undefined;
+    if (node) handleNodeClick(e, node);
+  }, [handleNodeClick]);
 
   const handlePaneClick = useCallback(() => {
     clearHighlight();
@@ -433,7 +444,7 @@ function AppInner() {
             <span className={styles.staleBannerError}>{parseError}</span>
           </div>
         )}
-        <div className={styles.flowWrapper}>
+        <div className={styles.flowWrapper} onKeyDown={handleFlowKeyDown}>
           <NodeActionsContext.Provider value={nodeActions}>
             <ReactFlow
               nodes={displayNodes}
@@ -447,6 +458,7 @@ function AppInner() {
               proOptions={{ hideAttribution: true }}
               colorMode="dark"
               edgesFocusable={false}
+              deleteKeyCode={null} // the diagram is derived from the SQL; nothing can be removed from it
               elementsSelectable={!isStale}
               nodesFocusable={!isStale}
               edgesReconnectable={false}
