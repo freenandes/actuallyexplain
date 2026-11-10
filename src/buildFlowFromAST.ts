@@ -661,13 +661,13 @@ class GraphBuilder {
         const tgtPos = g.node(e.target);
         // Out of the CTE's right side, up through the gap above its rank, around the right of the
         // graph, back in through the gap below the target's rank, and into the target's right side.
-        const fromX = srcPos.x + NODE_WIDTH / 2;
-        const toX = tgtPos.x + NODE_WIDTH / 2;
-        const side = NODE_SEP / 2; // between a node and its right-hand neighbour
+        // RecursiveEdge draws it from the nodes' live positions, so the gaps are stored relative to
+        // the nodes (and the path follows them when they're dragged).
         const lane = loopCount++; // each loop gets its own lane, nesting outside the previous ones
         const exitY = rankEdges(e.source).top - RANK_SEP / 2 + 12 * lane;
         const entryY = rankEdges(e.target).bottom + RANK_SEP / 2 - 12 * lane;
-        const loopX = maxRightX + 80 + 24 * lane;
+        const srcTop = srcPos.y - nodeExtras.get(e.source)!.height / 2;
+        const tgtBottom = tgtPos.y + nodeExtras.get(e.target)!.height / 2;
         return {
           id: `e-${i}`,
           source: e.source,
@@ -676,16 +676,10 @@ class GraphBuilder {
           animated: true,
           markerEnd: { ...arrow, color: '#3AA99F' },
           data: {
-            points: [
-              { x: fromX, y: srcPos.y },
-              { x: fromX + side, y: srcPos.y },
-              { x: fromX + side, y: exitY },
-              { x: loopX, y: exitY },
-              { x: loopX, y: entryY },
-              { x: toX + side, y: entryY },
-              { x: toX + side, y: tgtPos.y },
-              { x: toX, y: tgtPos.y },
-            ],
+            side: NODE_SEP / 2, // between a node and its right-hand neighbour
+            exitAbove: srcTop - exitY,
+            entryBelow: entryY - tgtBottom,
+            loopX: maxRightX + 80 + 24 * lane,
           },
           style: {
             stroke: '#3AA99F',
