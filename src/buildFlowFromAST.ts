@@ -291,7 +291,37 @@ function spanLoc(items: any[]): AstLoc | undefined {
 
 // ── Plain English translation ──
 
-function generatePlainEnglish(kind: string, label: string): string {
+const AGGREGATE_CALL = /\b(?:count|sum|avg|min|max|array_agg|string_agg|json_agg|jsonb_agg|json_object_agg|jsonb_object_agg|bool_and|bool_or|every|percentile_cont|percentile_disc|mode)\(/gi;
+
+/** Index of the `)` that closes the bracket at `open`. */
+function closingParen(text: string, open: number): number {
+  let depth = 0;
+  for (let i = open; i < text.length; i++) {
+    if (text[i] === '(') depth++;
+    else if (text[i] === ')' && --depth === 0) return i;
+  }
+  return text.length - 1;
+}
+
+/** Aggregate calls in a label, e.g. `sum(i.qty)`, with any WITHIN GROUP / FILTER; window calls (OVER) are left out. */
+export function aggregateCalls(label: string): string[] {
+  const calls: string[] = [];
+  for (const m of label.matchAll(AGGREGATE_CALL)) {
+    let end = closingParen(label, m.index + m[0].length - 1);
+    for (let more; (more = label.slice(end + 1).match(/^\s+(?:WITHIN GROUP|FILTER)\s*\(/i)); ) {
+      end = closingParen(label, end + more[0].length);
+    }
+    if (!/^\s+OVER\b/i.test(label.slice(end + 1))) calls.push(label.slice(m.index, end + 1));
+  }
+  return calls;
+}
+
+/** "a", "a and b", "a, b and c". */
+export const listText = (items: string[]) =>
+  items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+
+/** `grouped`: a SELECT whose rows come from GROUP BY / HAVING. */
+function generatePlainEnglish(kind: string, label: string, grouped = false): string {
   switch (kind) {
     case 'table': {
       if (label === '(no source)') return 'No data source specified.';
@@ -321,12 +351,16 @@ function generatePlainEnglish(kind: string, label: string): string {
         ? `${joinType}: matches where ${onMatch[1]}.`
         : 'Joins with another data source.';
     }
-    case 'select':
+    case 'select': {
       if (label.startsWith('SELECT DISTINCT ON ('))
         return 'Keeps only the first row for each distinct value of the DISTINCT ON expressions, then selects the output columns.';
       if (label.startsWith('SELECT DISTINCT '))
         return 'Selects the output columns and removes duplicate rows.';
+      const aggregates = aggregateCalls(label);
+      if (aggregates.length)
+        return `Selects the output columns, calculating ${listText(aggregates)} ${grouped ? 'for each group' : 'over all rows'}.`;
       return 'Selects and formats the output columns.';
+    }
     case 'groupby': {
       const cols = label.replace(/^GROUP BY\s+/i, '');
       return `Groups rows together by ${cols}.`;
@@ -597,9 +631,13 @@ class GraphBuilder {
     g.setGraph({ rankdir: 'TB', nodesep: NODE_SEP, ranksep: RANK_SEP, marginx: 40, marginy: 40 });
     g.setDefaultEdgeLabel(() => ({}));
 
+    const kindOf = new Map(this.nodes.map((n) => [n.id, n.kind]));
+    const grouped = new Set(this.edges
+      .filter((e) => kindOf.get(e.source) === 'groupby' || kindOf.get(e.source) === 'having')
+      .map((e) => e.target));
     const nodeExtras = new Map<string, { plainEnglish: string; height: number }>();
     for (const n of this.nodes) {
-      const plainEnglish = generatePlainEnglish(n.kind, n.label);
+      const plainEnglish = generatePlainEnglish(n.kind, n.label, grouped.has(n.id));
       const height = estimateNodeHeight(n.label, plainEnglish);
       nodeExtras.set(n.id, { plainEnglish, height });
       g.setNode(n.id, { width: NODE_WIDTH, height });
