@@ -9,6 +9,7 @@ const NODE_WIDTH = 240;
 const MIN_NODE_HEIGHT = 80;
 const NODE_SEP = 40; // horizontal gap between nodes in a rank
 const RANK_SEP = 120; // vertical gap between ranks
+const LOOP_CLEARANCE = 12; // least distance between a recursive loop's lane and a node or another loop
 
 const nodeColors: Record<string, string> = {
   table: '#879A39',
@@ -664,6 +665,26 @@ class GraphBuilder {
       return { top: y - half, bottom: y + half };
     };
 
+    // The vertical stretch of a recursive loop runs in the first clear lane right of its two nodes
+    // (usually the gap beside the CTE's own column), so it doesn't cut across other columns and
+    // their edges. Only when there's none does it go around the right of the whole graph.
+    const boxes = this.nodes.map((n) => {
+      const { x, y } = g.node(n.id);
+      const half = nodeExtras.get(n.id)!.height / 2;
+      return { left: x - NODE_WIDTH / 2, right: x + NODE_WIDTH / 2, top: y - half, bottom: y + half };
+    });
+    const usedLanes: { x: number; top: number; bottom: number }[] = [];
+    const loopLane = (minX: number, top: number, bottom: number, lane: number) => {
+      const beside = boxes.filter((b) => b.bottom > top && b.top < bottom);
+      const clear = (x: number) =>
+        beside.every((b) => x <= b.left - LOOP_CLEARANCE || x >= b.right + LOOP_CLEARANCE) &&
+        usedLanes.every((u) => Math.abs(u.x - x) >= LOOP_CLEARANCE || u.bottom <= top || u.top >= bottom);
+      const candidates = [minX, ...beside.map((b) => b.right + NODE_SEP / 2).filter((x) => x > minX)];
+      const x = candidates.sort((a, b) => a - b).find(clear) ?? maxRightX + 80 + 24 * lane;
+      usedLanes.push({ x, top, bottom });
+      return x;
+    };
+
     const flowNodes: Node[] = this.nodes.map((n) => {
       const pos = g.node(n.id);
       const color = nodeColors[n.kind] ?? '#58a6ff';
@@ -697,8 +718,8 @@ class GraphBuilder {
       if (e.isRecursive) {
         const srcPos = g.node(e.source);
         const tgtPos = g.node(e.target);
-        // Out of the CTE's right side, up through the gap above its rank, around the right of the
-        // graph, back in through the gap below the target's rank, and into the target's right side.
+        // Out of the CTE's right side, up through the gap above its rank, along a clear lane to the
+        // right, back in through the gap below the target's rank, and into the target's right side.
         // RecursiveEdge draws it from the nodes' live positions, so the gaps are stored relative to
         // the nodes (and the path follows them when they're dragged).
         const lane = loopCount++; // each loop gets its own lane, nesting outside the previous ones
@@ -706,6 +727,8 @@ class GraphBuilder {
         const entryY = rankEdges(e.target).bottom + RANK_SEP / 2 - 12 * lane;
         const srcTop = srcPos.y - nodeExtras.get(e.source)!.height / 2;
         const tgtBottom = tgtPos.y + nodeExtras.get(e.target)!.height / 2;
+        const side = NODE_SEP / 2; // between a node and its right-hand neighbour
+        const minX = Math.max(srcPos.x, tgtPos.x) + NODE_WIDTH / 2 + side;
         return {
           id: `e-${i}`,
           source: e.source,
@@ -714,10 +737,10 @@ class GraphBuilder {
           animated: true,
           markerEnd: { ...arrow, color: '#3AA99F' },
           data: {
-            side: NODE_SEP / 2, // between a node and its right-hand neighbour
+            side,
             exitAbove: srcTop - exitY,
             entryBelow: entryY - tgtBottom,
-            loopX: maxRightX + 80 + 24 * lane,
+            loopX: loopLane(minX, Math.min(entryY, exitY), Math.max(entryY, exitY), lane),
           },
           style: {
             stroke: '#3AA99F',
