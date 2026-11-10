@@ -543,6 +543,11 @@ class GraphBuilder {
     return { start: loc.start, end };
   }
 
+  /** Whether the SQL at this location starts with `(`, i.e. the node was written in brackets. */
+  startsWithParen(loc: AstLoc | undefined): boolean {
+    return !!loc && this.sql[loc.start] === '(';
+  }
+
   addEdge(source: string, target: string, kind?: string, isRecursive?: boolean) {
     this.edges.push({ source, target, kind: kind ?? 'select', isRecursive });
   }
@@ -1196,7 +1201,9 @@ function buildUnion(ast: AST, g: GraphBuilder, cteMap: Map<string, string>): str
   }
   if (ast.right) {
     const right = ast.right;
-    if (right.type === 'select' && (right.orderBy || right.limit)) {
+    // pgsql-ast-parser gives a trailing ORDER BY / LIMIT to the last branch, but without brackets
+    // PostgreSQL applies it to the whole union. Inside `(SELECT … LIMIT 1)` it stays with the branch.
+    if (right.type === 'select' && (right.orderBy || right.limit) && !g.startsWithParen(astLoc(right))) {
       trailingOrderBy = right.orderBy;
       trailingLimit = right.limit;
       const stripped = { ...right, orderBy: undefined, limit: undefined };
