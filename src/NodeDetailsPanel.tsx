@@ -69,6 +69,13 @@ const encyclopedia: Record<string, EncyclopediaEntry> = {
     docsUrl:
       'https://www.postgresql.org/docs/current/sql-select.html#SQL-LIMIT',
   },
+  cte_ref: {
+    title: 'CTE reference',
+    definition:
+      'Reads the rows of a Common Table Expression defined in the WITH clause, as if it were a table. Each place a CTE is used gets its own reference, with its own alias.',
+    docsUrl:
+      'https://www.postgresql.org/docs/current/queries-with.html',
+  },
   cte: {
     title: 'WITH / CTE',
     definition:
@@ -198,6 +205,10 @@ function generateDetailedContext(kind: string, label: string): string {
       if (offset)
         return `This step skips the first \`${offset}\` rows and returns all the rest. Without ORDER BY, which rows are skipped isn't guaranteed.`;
       return `This step caps the output to \`${limit ?? '?'}\` rows. Combined with ORDER BY, this is commonly used for "top N" queries or pagination.`;
+    }
+    case 'cte_ref': {
+      const [, name, alias] = label.match(/^(.*?)(?: \((.*)\))?$/) ?? [];
+      return `This step reads the rows produced by the \`${name}\` CTE${alias ? `, calling them \`${alias}\` in this query` : ''}. The CTE itself is computed once, in the WITH clause.`;
     }
     case 'cte': {
       const name = label.replace(/^(CTE|RECURSIVE):\s*/i, '').trim();

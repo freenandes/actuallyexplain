@@ -31,6 +31,7 @@ const nodeColors: Record<string, string> = {
   action: '#8B7EC8',
   operation: '#4385BE',
   cte: '#3AA99F',
+  cte_ref: '#3AA99F',
   limit: '#9F9D96',
   returning: '#CE5D97',
   union: '#8B7EC8',
@@ -245,6 +246,11 @@ function limitLabel(limit: any): string {
   return parts.join(' ');
 }
 
+/** The CTE node a FROM item reads, if it names a CTE in scope. `public.users` is always a table. */
+function cteRefOf(src: any, cteMap: Map<string, string>): string | undefined {
+  return src?.type === 'table' && !src.name?.schema ? cteMap.get(tblName(src)) : undefined;
+}
+
 function tblName(t: any): string {
   if (!t) return '?';
   if (typeof t === 'string') return t;
@@ -332,6 +338,10 @@ function generatePlainEnglish(kind: string, label: string): string {
       if (offset && limit) return `Skips the first ${rows(offset)}, then limits output to ${rows(limit)}.`;
       if (offset) return `Skips the first ${rows(offset)}.`;
       return `Limits output to ${rows(limit ?? '?')}.`;
+    }
+    case 'cte_ref': {
+      const [, name, alias] = label.match(/^(.*?)(?: \((.*)\))?$/) ?? [];
+      return `Reads the rows of the ${name} CTE${alias ? ` as ${alias}` : ''}.`;
     }
     case 'cte': {
       const name = label.replace(/^(CTE|RECURSIVE):\s*/i, '');
@@ -686,11 +696,8 @@ function collectCteRefsInExpr(
   // A nested SELECT — check its FROM for CTE references
   if (expr.type === 'select' && expr.from) {
     for (const src of expr.from) {
-      if (src.type === 'table') {
-        const name = tblName(src);
-        const cteRef = cteMap.get(name);
-        if (cteRef) found.add(cteRef);
-      }
+      const cteRef = cteRefOf(src, cteMap);
+      if (cteRef) found.add(cteRef);
       // Also recurse into join ON clauses
       if (src.join?.on) collectCteRefsInExpr(src.join.on, cteMap, found);
     }
@@ -764,7 +771,7 @@ function buildSelect(
     for (const [i, src] of ast.from.entries()) {
       // The first source's range takes in the FROM keyword, the way WHERE, GROUP BY, … do.
       const withFrom = (loc: AstLoc | undefined) => (i === 0 ? g.kwLoc(loc, 'FROM') : loc);
-      const isSelfRef = src.type === 'table' && selfRef && tblName(src) === selfRef.selfName;
+      const isSelfRef = src.type === 'table' && selfRef && !src.name?.schema && tblName(src) === selfRef.selfName;
 
       if (isSelfRef && !src.join) {
         continue;
@@ -776,13 +783,15 @@ function buildSelect(
       } else if (src.type === 'table') {
         const name = tblName(src);
         const alias = tblAlias(src);
-        const cteRef = cteMap.get(name);
+        const nameLoc = astLoc(src.name) ?? astLoc(src);
+        const tblLoc = g.alLoc(nameLoc, src.name?.alias);
+        const cteRef = cteRefOf(src, cteMap);
         if (cteRef) {
-          srcId = cteRef;
+          // A separate node per use, so `FROM q a JOIN q b` shows two inputs with their aliases
+          srcId = g.addNode(`${name}${alias}`, 'cte_ref', withFrom(tblLoc));
+          g.addEdge(cteRef, srcId, 'cte');
         } else {
-          const nameLoc = astLoc(src.name) ?? astLoc(src);
-          const tblLoc = g.alLoc(nameLoc, src.name?.alias);
-          srcId = g.addNode(`${name}${alias}`, 'table', withFrom(tblLoc));
+          srcId = g.addNode(`${qualifiedName(src.name)}${alias}`, 'table', withFrom(tblLoc));
         }
       } else if (src.type === 'select') {
         const subId = buildSelect(src, g, cteMap);
@@ -1063,7 +1072,7 @@ function buildCreateTable(ast: AST, g: GraphBuilder): string {
 
 function containsTableRef(node: any, name: string): boolean {
   if (!node || typeof node !== 'object') return false;
-  if (node.type === 'table' && tblName(node) === name) return true;
+  if (node.type === 'table' && !node.name?.schema && tblName(node) === name) return true;
   for (const val of Object.values(node)) {
     if (Array.isArray(val)) {
       for (const item of val) {
@@ -1076,8 +1085,9 @@ function containsTableRef(node: any, name: string): boolean {
   return false;
 }
 
-function buildWith(ast: AST, g: GraphBuilder): string {
-  const cteMap = new Map<string, string>();
+function buildWith(ast: AST, g: GraphBuilder, outerCtes: Map<string, string>): string {
+  const cteMap = new Map(outerCtes); // CTEs of an enclosing WITH stay visible
+  let firstCteId: string | undefined;
 
   if (ast.bind && Array.isArray(ast.bind)) {
     for (const [i, cte] of ast.bind.entries()) {
@@ -1115,6 +1125,7 @@ function buildWith(ast: AST, g: GraphBuilder): string {
         }
 
         cteMap.set(name, cteHeaderId);
+        firstCteId ??= cteHeaderId;
       } else {
         const cteHeaderId = g.addNode(`CTE: ${name}`, 'cte', cteLoc);
 
@@ -1124,6 +1135,7 @@ function buildWith(ast: AST, g: GraphBuilder): string {
         }
 
         cteMap.set(name, cteHeaderId);
+        firstCteId ??= cteHeaderId;
       }
     }
   }
@@ -1132,10 +1144,10 @@ function buildWith(ast: AST, g: GraphBuilder): string {
     return dispatchBuild(ast.in, g, cteMap);
   }
 
-  return cteMap.values().next().value ?? g.addNode('WITH (empty)', 'cte');
+  return firstCteId ?? g.addNode('WITH (empty)', 'cte');
 }
 
-function buildWithRecursive(ast: AST, g: GraphBuilder): string {
+function buildWithRecursive(ast: AST, g: GraphBuilder, outerCtes: Map<string, string>): string {
   const name = ast.alias?.name ?? '?';
   const cols = ast.columnNames?.map((c: any) => c.name ?? c).join(', ');
   const colSuffix = cols ? `(${cols})` : '';
@@ -1153,7 +1165,7 @@ function buildWithRecursive(ast: AST, g: GraphBuilder): string {
 
       // Base case (left) — no self-reference in scope
       if (ast.bind.left) {
-        const leftId = dispatchBuild(ast.bind.left, g, new Map());
+        const leftId = dispatchBuild(ast.bind.left, g, new Map(outerCtes));
         g.addEdge(leftId, unionId, 'union');
       }
 
@@ -1164,9 +1176,9 @@ function buildWithRecursive(ast: AST, g: GraphBuilder): string {
 
         let rightId: string;
         if (ast.bind.right.type === 'select') {
-          rightId = buildSelect(ast.bind.right, g, new Map(), selfRef);
+          rightId = buildSelect(ast.bind.right, g, new Map(outerCtes), selfRef);
         } else {
-          rightId = dispatchBuild(ast.bind.right, g, new Map());
+          rightId = dispatchBuild(ast.bind.right, g, new Map(outerCtes));
         }
         g.addEdge(rightId, unionId, 'union');
 
@@ -1178,7 +1190,7 @@ function buildWithRecursive(ast: AST, g: GraphBuilder): string {
     }
   }
 
-  const cteMap = new Map<string, string>();
+  const cteMap = new Map(outerCtes);
   cteMap.set(name, cteId);
 
   if (ast.in) {
@@ -1269,9 +1281,9 @@ function dispatchBuild(ast: AST, g: GraphBuilder, cteMap: Map<string, string>): 
     case 'create table':
       return buildCreateTable(ast, g);
     case 'with':
-      return buildWith(ast, g);
+      return buildWith(ast, g, cteMap);
     case 'with recursive':
-      return buildWithRecursive(ast, g);
+      return buildWithRecursive(ast, g, cteMap);
     case 'union':
     case 'union all':
     case 'intersect':
