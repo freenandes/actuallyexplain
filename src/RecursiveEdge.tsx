@@ -7,10 +7,10 @@ const distance = (a: XYPosition, b: XYPosition) => Math.hypot(a.x - b.x, a.y - b
 /**
  * Custom edge for recursive CTE feedback loops — hidden from dagre to avoid cycles, but rendered
  * visually as a distinct dashed path with rounded corners. It runs out of the CTE node's right
- * side, through the gap above its rank, around the right of the graph and back through the gap
+ * side, through the gap above its rank, up a clear lane to the right and back through the gap
  * below the target's rank. The route is computed from the nodes' current positions, so it stays
  * attached when they're dragged; GraphBuilder.layout() supplies the gaps (`data.exitAbove`,
- * `data.entryBelow`), the outer lane (`data.loopX`) and the side offset (`data.side`).
+ * `data.entryBelow`), the lane (`data.loopX`) and the side offset (`data.side`).
  */
 export default function RecursiveEdge({
   source,
@@ -32,7 +32,7 @@ export default function RecursiveEdge({
   const toY = t.y + tgt.measured.height / 2;
   const exitY = s.y - ((data?.exitAbove as number) ?? 60);
   const entryY = t.y + tgt.measured.height + ((data?.entryBelow as number) ?? 60);
-  const loopX = Math.max((data?.loopX as number) ?? 0, fromX + 2 * side, toX + 2 * side);
+  const loopX = Math.max((data?.loopX as number) ?? 0, fromX + side, toX + side);
 
   const points: XYPosition[] = [
     { x: fromX, y: fromY },
