@@ -83,9 +83,13 @@ function AppInner() {
   const monacoRef = useRef<typeof Monaco | null>(null);
   const decorationsRef = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null);
   const nodesRef = useRef<Node[]>([]);
+  // The diagram still shows the last SQL that parsed, so its ranges don't match the editor text.
+  const isStale = parseError !== null && nodes.length > 0;
+  const staleRef = useRef(false);
   const suppressCursorRef = useRef(false);
 
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
+  useEffect(() => { staleRef.current = isStale; }, [isStale]);
 
   useEffect(() => {
     return () => {
@@ -222,7 +226,7 @@ function AppInner() {
     }, true);
 
     editor.onDidChangeCursorPosition((e) => {
-      if (suppressCursorRef.current) return;
+      if (suppressCursorRef.current || staleRef.current) return;
       if (e.reason === 3) {
         // reason 3 = Explicit (click or keyboard navigation)
         const model = editor.getModel();
@@ -255,6 +259,7 @@ function AppInner() {
   }, [highlightRange, clearHighlight, revealNode]);
 
   const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
+    if (staleRef.current) return;
     if (closePanelTimeoutRef.current) {
       clearTimeout(closePanelTimeoutRef.current);
       closePanelTimeoutRef.current = null;
@@ -310,6 +315,7 @@ function AppInner() {
   }, [selectedNode, isClosingPanel]);
 
   const openDetails = useCallback((nodeId: string) => {
+    if (staleRef.current) return;
     if (closePanelTimeoutRef.current) {
       clearTimeout(closePanelTimeoutRef.current);
       closePanelTimeoutRef.current = null;
@@ -419,7 +425,14 @@ function AppInner() {
       </aside>
 
       {/* ─── Right: Flow Canvas ─── */}
-      <main className={styles.flowPane}>
+      <main className={styles.flowPane} data-stale={isStale}>
+        {parseError && (
+          <div className={styles.staleBanner} data-stale={isStale} role="status">
+            {isStale && <span>Out of date: showing the last SQL that parsed. </span>}
+            {/* The editor's error bar shows this on desktop; Diagram view on mobile hides the editor. */}
+            <span className={styles.staleBannerError}>{parseError}</span>
+          </div>
+        )}
         <div className={styles.flowWrapper}>
           <NodeActionsContext.Provider value={nodeActions}>
             <ReactFlow
@@ -434,6 +447,8 @@ function AppInner() {
               proOptions={{ hideAttribution: true }}
               colorMode="dark"
               edgesFocusable={false}
+              elementsSelectable={!isStale}
+              nodesFocusable={!isStale}
               edgesReconnectable={false}
             >
               <Background
