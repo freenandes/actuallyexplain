@@ -975,7 +975,12 @@ function buildWithRecursive(ast: AST, g: GraphBuilder): string {
   const name = ast.alias?.name ?? '?';
   const cols = ast.columnNames?.map((c: any) => c.name ?? c).join(', ');
   const colSuffix = cols ? `(${cols})` : '';
-  const cteId = g.addNode(`RECURSIVE: ${name}${colSuffix}`, 'cte', astLoc(ast));
+  // From WITH to the end of the CTE body (the statement's own range also covers the main query);
+  // addNode extends it over the body's closing parenthesis.
+  const start = astLoc(ast)?.start;
+  const bodyEnd = astLoc(ast.bind)?.end;
+  const cteLoc = start !== undefined && bodyEnd !== undefined ? { start, end: bodyEnd } : undefined;
+  const cteId = g.addNode(`RECURSIVE: ${name}${colSuffix}`, 'cte', cteLoc);
 
   if (ast.bind) {
     if (ast.bind.type === 'union' || ast.bind.type === 'union all') {
